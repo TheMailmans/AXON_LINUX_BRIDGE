@@ -28,6 +28,13 @@ service DesktopAgent {
   
   // System info
   rpc GetSystemInfo(SystemInfoRequest) returns (SystemInfoResponse);
+  
+  // OSWorld evaluator support - system state queries
+  rpc GetWindowList(GetWindowListRequest) returns (GetWindowListResponse);
+  rpc GetProcessList(GetProcessListRequest) returns (GetProcessListResponse);
+  rpc GetBrowserTabs(GetBrowserTabsRequest) returns (GetBrowserTabsResponse);
+  rpc ListFiles(ListFilesRequest) returns (ListFilesResponse);
+  rpc GetClipboard(GetClipboardRequest) returns (GetClipboardResponse);
 }
 
 // Connection
@@ -257,4 +264,47 @@ enum ClickType {
   DOUBLE = 1;
   PRESS = 2;
   RELEASE = 3;
+}
+
+// OSWorld evaluator support messages
+message GetWindowListRequest {
+  string agent_id = 1;
+}
+
+message GetWindowListResponse {
+  repeated string windows = 1;
+}
+
+message GetProcessListRequest {
+  string agent_id = 1;
+}
+
+message GetProcessListResponse {
+  repeated string processes = 1;
+}
+
+message GetBrowserTabsRequest {
+  string agent_id = 1;
+  string browser = 2;  // "chrome", "safari", "firefox"
+}
+
+message GetBrowserTabsResponse {
+  repeated string tabs = 1;
+}
+
+message ListFilesRequest {
+  string agent_id = 1;
+  string directory = 2;
+}
+
+message ListFilesResponse {
+  repeated string files = 1;
+}
+
+message GetClipboardRequest {
+  string agent_id = 1;
+}
+
+message GetClipboardResponse {
+  string content = 1;
 }

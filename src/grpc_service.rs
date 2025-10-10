@@ -532,6 +532,226 @@ impl DesktopAgent for DesktopAgentService {
             }),
         }))
     }
+    
+    // OSWorld evaluator support methods
+    
+    async fn get_window_list(
+        &self,
+        request: Request<GetWindowListRequest>,
+    ) -> Result<Response<GetWindowListResponse>, Status> {
+        let _req = request.into_inner();
+        info!("GetWindowList called");
+        
+        #[cfg(target_os = "macos")]
+        {
+            use std::process::Command;
+            
+            let output = Command::new("osascript")
+                .arg("-e")
+                .arg(r#"tell application "System Events"
+                    set windowList to {}
+                    repeat with proc in (every process whose visible is true)
+                        try
+                            repeat with win in (every window of proc)
+                                set end of windowList to name of win
+                            end repeat
+                        end try
+                    end repeat
+                    return windowList
+                end tell"#)
+                .output()
+                .map_err(|e| Status::internal(format!("Failed to get windows: {}", e)))?;
+            
+            let windows_str = String::from_utf8_lossy(&output.stdout);
+            let windows: Vec<String> = windows_str
+                .split(',')
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect();
+            
+            info!("Found {} windows", windows.len());
+            Ok(Response::new(GetWindowListResponse { windows }))
+        }
+        
+        #[cfg(not(target_os = "macos"))]
+        {
+            Err(Status::unimplemented("GetWindowList only supported on macOS"))
+        }
+    }
+    
+    async fn get_process_list(
+        &self,
+        request: Request<GetProcessListRequest>,
+    ) -> Result<Response<GetProcessListResponse>, Status> {
+        let _req = request.into_inner();
+        info!("GetProcessList called");
+        
+        use std::process::Command;
+        
+        let output = Command::new("ps")
+            .arg("-eo")
+            .arg("comm")
+            .output()
+            .map_err(|e| Status::internal(format!("Failed to get processes: {}", e)))?;
+        
+        let processes_str = String::from_utf8_lossy(&output.stdout);
+        let processes: Vec<String> = processes_str
+            .lines()
+            .skip(1) // Skip header
+            .map(|line| {
+                // Get just the process name (last component of path)
+                std::path::Path::new(line)
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or(line)
+                    .to_string()
+            })
+            .filter(|s| !s.is_empty())
+            .collect();
+        
+        info!("Found {} processes", processes.len());
+        Ok(Response::new(GetProcessListResponse { processes }))
+    }
+    
+    async fn get_browser_tabs(
+        &self,
+        request: Request<GetBrowserTabsRequest>,
+    ) -> Result<Response<GetBrowserTabsResponse>, Status> {
+        let req = request.into_inner();
+        info!("GetBrowserTabs called for browser: {}", req.browser);
+        
+        #[cfg(target_os = "macos")]
+        {
+            use std::process::Command;
+            
+            let script = match req.browser.as_str() {
+                "chrome" => r#"
+                    tell application "Google Chrome"
+                        set tabList to {}
+                        repeat with w in windows
+                            repeat with t in tabs of w
+                                set end of tabList to URL of t
+                            end repeat
+                        end repeat
+                        return tabList
+                    end tell
+                "#,
+                "safari" => r#"
+                    tell application "Safari"
+                        set tabList to {}
+                        repeat with w in windows
+                            repeat with t in tabs of w
+                                set end of tabList to URL of t
+                            end repeat
+                        end repeat
+                        return tabList
+                    end tell
+                "#,
+                _ => return Err(Status::invalid_argument(format!("Unsupported browser: {}", req.browser))),
+            };
+            
+            let output = Command::new("osascript")
+                .arg("-e")
+                .arg(script)
+                .output()
+                .map_err(|e| Status::internal(format!("Failed to get browser tabs: {}", e)))?;
+            
+            if !output.status.success() {
+                let err = String::from_utf8_lossy(&output.stderr);
+                return Err(Status::internal(format!("Browser not running or error: {}", err)));
+            }
+            
+            let tabs_str = String::from_utf8_lossy(&output.stdout);
+            let tabs: Vec<String> = tabs_str
+                .split(',')
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect();
+            
+            info!("Found {} tabs in {}", tabs.len(), req.browser);
+            Ok(Response::new(GetBrowserTabsResponse { tabs }))
+        }
+        
+        #[cfg(not(target_os = "macos"))]
+        {
+            Err(Status::unimplemented("GetBrowserTabs only supported on macOS"))
+        }
+    }
+    
+    async fn list_files(
+        &self,
+        request: Request<ListFilesRequest>,
+    ) -> Result<Response<ListFilesResponse>, Status> {
+        let req = request.into_inner();
+        info!("ListFiles called for directory: {}", req.directory);
+        
+        use std::process::Command;
+        
+        let output = Command::new("ls")
+            .arg("-1")
+            .arg(&req.directory)
+            .output()
+            .map_err(|e| Status::internal(format!("Failed to list files: {}", e)))?;
+        
+        if !output.status.success() {
+            let err = String::from_utf8_lossy(&output.stderr);
+            return Err(Status::internal(format!("Directory not found or error: {}", err)));
+        }
+        
+        let files_str = String::from_utf8_lossy(&output.stdout);
+        let files: Vec<String> = files_str
+            .lines()
+            .map(|s| s.to_string())
+            .filter(|s| !s.is_empty())
+            .collect();
+        
+        info!("Found {} files in {}", files.len(), req.directory);
+        Ok(Response::new(ListFilesResponse { files }))
+    }
+    
+    async fn get_clipboard(
+        &self,
+        request: Request<GetClipboardRequest>,
+    ) -> Result<Response<GetClipboardResponse>, Status> {
+        let _req = request.into_inner();
+        info!("GetClipboard called");
+        
+        #[cfg(target_os = "macos")]
+        {
+            use std::process::Command;
+            
+            let output = Command::new("pbpaste")
+                .output()
+                .map_err(|e| Status::internal(format!("Failed to get clipboard: {}", e)))?;
+            
+            let content = String::from_utf8_lossy(&output.stdout).to_string();
+            
+            info!("Clipboard content: {} bytes", content.len());
+            Ok(Response::new(GetClipboardResponse { content }))
+        }
+        
+        #[cfg(target_os = "linux")]
+        {
+            use std::process::Command;
+            
+            let output = Command::new("xclip")
+                .arg("-selection")
+                .arg("clipboard")
+                .arg("-o")
+                .output()
+                .map_err(|e| Status::internal(format!("Failed to get clipboard: {}", e)))?;
+            
+            let content = String::from_utf8_lossy(&output.stdout).to_string();
+            
+            info!("Clipboard content: {} bytes", content.len());
+            Ok(Response::new(GetClipboardResponse { content }))
+        }
+        
+        #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+        {
+            Err(Status::unimplemented("GetClipboard not supported on this platform"))
+        }
+    }
 }
 
 /// Capture accessibility tree and extract shortcuts
