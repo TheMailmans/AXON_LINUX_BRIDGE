@@ -573,9 +573,39 @@ impl DesktopAgent for DesktopAgentService {
             Ok(Response::new(GetWindowListResponse { windows }))
         }
         
-        #[cfg(not(target_os = "macos"))]
+        #[cfg(target_os = "linux")]
         {
-            Err(Status::unimplemented("GetWindowList only supported on macOS"))
+            use std::process::Command;
+            
+            // Use wmctrl to get window list on Linux
+            let output = Command::new("wmctrl")
+                .arg("-l")
+                .output()
+                .map_err(|e| Status::internal(format!("Failed to run wmctrl: {}", e)))?;
+            
+            if !output.status.success() {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                return Err(Status::internal(format!("wmctrl failed: {}", stderr)));
+            }
+            
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            let windows: Vec<String> = stdout
+                .lines()
+                .filter(|line| !line.is_empty())
+                .map(|line| {
+                    // wmctrl format: 0x01234567  0 hostname Title of window
+                    let parts: Vec<&str> = line.splitn(4, ' ').collect();
+                    parts.get(3).unwrap_or(&"").to_string()
+                })
+                .collect();
+            
+            info!("Found {} windows", windows.len());
+            Ok(Response::new(GetWindowListResponse { windows }))
+        }
+        
+        #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+        {
+            Err(Status::unimplemented("GetWindowList only supported on macOS and Linux"))
         }
     }
     
@@ -750,6 +780,108 @@ impl DesktopAgent for DesktopAgentService {
         #[cfg(not(any(target_os = "macos", target_os = "linux")))]
         {
             Err(Status::unimplemented("GetClipboard not supported on this platform"))
+        }
+    }
+    
+    async fn launch_application(
+        &self,
+        request: Request<LaunchApplicationRequest>,
+    ) -> Result<Response<LaunchApplicationResponse>, Status> {
+        let req = request.into_inner();
+        info!("LaunchApplication called: app_name={}", req.app_name);
+        
+        #[cfg(target_os = "linux")]
+        {
+            use std::process::Command;
+            
+            // Map friendly names to actual Linux binaries
+            let binary_name = match req.app_name.to_lowercase().as_str() {
+                "calculator" | "calc" => "gnome-calculator",
+                "terminal" | "term" => "gnome-terminal",
+                "files" | "file-manager" | "nautilus" => "nautilus",
+                "firefox" => "firefox",
+                "chrome" | "google-chrome" => "google-chrome",
+                "text-editor" | "gedit" => "gedit",
+                "settings" => "gnome-control-center",
+                _ => {
+                    let err_msg = format!("Unknown application: {}", req.app_name);
+                    error!("{}", err_msg);
+                    return Ok(Response::new(LaunchApplicationResponse {
+                        success: false,
+                        error: err_msg,
+                    }));
+                }
+            };
+            
+            info!("Launching binary: {}", binary_name);
+            
+            match Command::new(binary_name).spawn() {
+                Ok(child) => {
+                    info!("Successfully launched {} (PID: {})", binary_name, child.id());
+                    Ok(Response::new(LaunchApplicationResponse {
+                        success: true,
+                        error: String::new(),
+                    }))
+                }
+                Err(e) => {
+                    let error_msg = format!("Failed to launch {}: {}", binary_name, e);
+                    error!("{}", error_msg);
+                    Ok(Response::new(LaunchApplicationResponse {
+                        success: false,
+                        error: error_msg,
+                    }))
+                }
+            }
+        }
+        
+        #[cfg(target_os = "macos")]
+        {
+            use std::process::Command;
+            
+            // Map friendly names to macOS application names
+            let app_name = match req.app_name.to_lowercase().as_str() {
+                "calculator" | "calc" => "Calculator",
+                "terminal" | "term" => "Terminal",
+                "safari" => "Safari",
+                "firefox" => "Firefox",
+                "chrome" | "google-chrome" => "Google Chrome",
+                "text-editor" | "textedit" => "TextEdit",
+                "finder" | "files" => "Finder",
+                "settings" | "system-preferences" => "System Settings",
+                _ => {
+                    let err_msg = format!("Unknown application: {}", req.app_name);
+                    error!("{}", err_msg);
+                    return Ok(Response::new(LaunchApplicationResponse {
+                        success: false,
+                        error: err_msg,
+                    }));
+                }
+            };
+            
+            info!("Launching application: {}", app_name);
+            
+            match Command::new("open").arg("-a").arg(app_name).spawn() {
+                Ok(_) => {
+                    info!("Successfully launched {}", app_name);
+                    Ok(Response::new(LaunchApplicationResponse {
+                        success: true,
+                        error: String::new(),
+                    }))
+                }
+                Err(e) => {
+                    let error_msg = format!("Failed to launch {}: {}", app_name, e);
+                    error!("{}", error_msg);
+                    Ok(Response::new(LaunchApplicationResponse {
+                        success: false,
+                        error: error_msg,
+                    }))
+                }
+            }
+        }
+        
+        #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+        {
+            Err(Status::unimplemented("LaunchApplication only supported on Linux and macOS"))
         }
     }
 }

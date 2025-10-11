@@ -35,6 +35,9 @@ service DesktopAgent {
   rpc GetBrowserTabs(GetBrowserTabsRequest) returns (GetBrowserTabsResponse);
   rpc ListFiles(ListFilesRequest) returns (ListFilesResponse);
   rpc GetClipboard(GetClipboardRequest) returns (GetClipboardResponse);
+  
+  // Application control
+  rpc LaunchApplication(LaunchApplicationRequest) returns (LaunchApplicationResponse);
 }
 
 // Connection
@@ -307,4 +310,15 @@ message GetClipboardRequest {
 
 message GetClipboardResponse {
   string content = 1;
+}
+
+// Application control
+message LaunchApplicationRequest {
+  string agent_id = 1;
+  string app_name = 2;  // e.g. "calculator", "terminal", "files", "firefox"
+}
+
+message LaunchApplicationResponse {
+  bool success = 1;
+  string error = 2;
 }
