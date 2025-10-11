@@ -884,6 +884,102 @@ impl DesktopAgent for DesktopAgentService {
             Err(Status::unimplemented("LaunchApplication only supported on Linux and macOS"))
         }
     }
+    
+    async fn close_application(
+        &self,
+        request: Request<CloseApplicationRequest>,
+    ) -> Result<Response<CloseApplicationResponse>, Status> {
+        let req = request.into_inner();
+        info!("CloseApplication called: app_name={}", req.app_name);
+        
+        #[cfg(target_os = "linux")]
+        {
+            use std::process::Command;
+            
+            info!("Closing window by title: {}", req.app_name);
+            
+            // Use wmctrl to close window by title
+            // wmctrl -c matches window title and closes it gracefully
+            match Command::new("wmctrl")
+                .arg("-c")
+                .arg(&req.app_name)
+                .output() 
+            {
+                Ok(output) => {
+                    if output.status.success() {
+                        info!("Successfully closed window: {}", req.app_name);
+                        Ok(Response::new(CloseApplicationResponse {
+                            success: true,
+                            error: String::new(),
+                        }))
+                    } else {
+                        let stderr = String::from_utf8_lossy(&output.stderr);
+                        let error_msg = format!("wmctrl failed to close window: {}", stderr);
+                        error!("{}", error_msg);
+                        Ok(Response::new(CloseApplicationResponse {
+                            success: false,
+                            error: error_msg,
+                        }))
+                    }
+                }
+                Err(e) => {
+                    let error_msg = format!("Failed to execute wmctrl: {}", e);
+                    error!("{}", error_msg);
+                    Ok(Response::new(CloseApplicationResponse {
+                        success: false,
+                        error: error_msg,
+                    }))
+                }
+            }
+        }
+        
+        #[cfg(target_os = "macos")]
+        {
+            use std::process::Command;
+            
+            info!("Closing application by name: {}", req.app_name);
+            
+            // Use AppleScript to quit the application gracefully
+            let script = format!("tell application \"{}\" to quit", req.app_name);
+            
+            match Command::new("osascript")
+                .arg("-e")
+                .arg(&script)
+                .output()
+            {
+                Ok(output) => {
+                    if output.status.success() {
+                        info!("Successfully closed application: {}", req.app_name);
+                        Ok(Response::new(CloseApplicationResponse {
+                            success: true,
+                            error: String::new(),
+                        }))
+                    } else {
+                        let stderr = String::from_utf8_lossy(&output.stderr);
+                        let error_msg = format!("Failed to quit application: {}", stderr);
+                        error!("{}", error_msg);
+                        Ok(Response::new(CloseApplicationResponse {
+                            success: false,
+                            error: error_msg,
+                        }))
+                    }
+                }
+                Err(e) => {
+                    let error_msg = format!("Failed to execute osascript: {}", e);
+                    error!("{}", error_msg);
+                    Ok(Response::new(CloseApplicationResponse {
+                        success: false,
+                        error: error_msg,
+                    }))
+                }
+            }
+        }
+        
+        #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+        {
+            Err(Status::unimplemented("CloseApplication only supported on Linux and macOS"))
+        }
+    }
 }
 
 /// Capture accessibility tree and extract shortcuts

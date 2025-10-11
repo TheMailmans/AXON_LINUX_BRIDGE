@@ -112,6 +112,17 @@ Communication with hub via gRPC (defined in `proto/agent.proto`):
 - `InjectMouseClick` - Click mouse button
 - `InjectKeyPress` - Press keyboard key
 
+### Application Control
+- `LaunchApplication` - Launch desktop applications
+- `CloseApplication` - Close application windows gracefully
+
+### System Queries (OSWorld Support)
+- `GetWindowList` - List open windows
+- `GetProcessList` - List running processes
+- `GetBrowserTabs` - List browser tabs
+- `ListFiles` - List directory contents
+- `GetClipboard` - Get clipboard content
+
 ## Project Structure
 
 ```

@@ -38,6 +38,7 @@ service DesktopAgent {
   
   // Application control
   rpc LaunchApplication(LaunchApplicationRequest) returns (LaunchApplicationResponse);
+  rpc CloseApplication(CloseApplicationRequest) returns (CloseApplicationResponse);
 }
 
 // Connection
@@ -319,6 +320,16 @@ message LaunchApplicationRequest {
 }
 
 message LaunchApplicationResponse {
+  bool success = 1;
+  string error = 2;
+}
+
+message CloseApplicationRequest {
+  string agent_id = 1;
+  string app_name = 2;  // Window title or app name to close (e.g. "Calculator", "axonhub Calculator")
+}
+
+message CloseApplicationResponse {
   bool success = 1;
   string error = 2;
 }
