@@ -88,7 +88,7 @@ impl PulseAudioCapture {
             
             if pa.is_null() {
                 let error_str = pa_strerror(error);
-                let error_msg = std::ffi::CStr::from_ptr(error_str as *const i8);
+                let error_msg = std::ffi::CStr::from_ptr(error_str as *const u8);
                 anyhow::bail!("Failed to create PulseAudio connection: {}", 
                     error_msg.to_string_lossy());
             }
@@ -139,7 +139,7 @@ impl PulseAudioCapture {
             
             if pa.is_null() {
                 let error_str = pa_strerror(error);
-                let error_msg = std::ffi::CStr::from_ptr(error_str as *const i8);
+                let error_msg = std::ffi::CStr::from_ptr(error_str as *const u8);
                 anyhow::bail!("Failed to create PulseAudio connection: {}", 
                     error_msg.to_string_lossy());
             }
@@ -178,7 +178,7 @@ impl PulseAudioCapture {
             
             if result < 0 {
                 let error_str = pa_strerror(error);
-                let error_msg = std::ffi::CStr::from_ptr(error_str as *const i8);
+                let error_msg = std::ffi::CStr::from_ptr(error_str as *const u8);
                 return Err(anyhow::anyhow!("Failed to read audio: {}", 
                     error_msg.to_string_lossy()));
             }
@@ -234,7 +234,7 @@ impl PulseAudioCapture {
             
             if error != 0 {
                 let error_str = pa_strerror(error);
-                let error_msg = std::ffi::CStr::from_ptr(error_str as *const i8);
+                let error_msg = std::ffi::CStr::from_ptr(error_str as *const u8);
                 return Err(anyhow::anyhow!("Failed to get latency: {}", 
                     error_msg.to_string_lossy()));
             }

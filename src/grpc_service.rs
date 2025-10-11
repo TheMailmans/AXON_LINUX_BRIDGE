@@ -896,34 +896,80 @@ impl DesktopAgent for DesktopAgentService {
         {
             use std::process::Command;
             
-            info!("Closing window by title: {}", req.app_name);
+            info!("Closing window matching: {}", req.app_name);
             
-            // Use wmctrl to close window by title
-            // wmctrl -c matches window title and closes it gracefully
-            match Command::new("wmctrl")
-                .arg("-c")
-                .arg(&req.app_name)
-                .output() 
-            {
-                Ok(output) => {
-                    if output.status.success() {
-                        info!("Successfully closed window: {}", req.app_name);
-                        Ok(Response::new(CloseApplicationResponse {
-                            success: true,
-                            error: String::new(),
-                        }))
+            // Step 1: List all windows and find matching window ID
+            match Command::new("wmctrl").arg("-l").output() {
+                Ok(list_output) => {
+                    let windows = String::from_utf8_lossy(&list_output.stdout);
+                    
+                    // Find window ID for matching title (case-insensitive)
+                    let app_lower = req.app_name.to_lowercase();
+                    let window_id = windows
+                        .lines()
+                        .find(|line| line.to_lowercase().contains(&app_lower))
+                        .and_then(|line| line.split_whitespace().next())
+                        .map(|s| s.to_string());
+                    
+                    if let Some(id) = window_id {
+                        info!("Found window ID: {} for {}", id, req.app_name);
+                        
+                        // Step 2: Close by window ID using -ic (close immediately)
+                        match Command::new("wmctrl").arg("-ic").arg(&id).output() {
+                            Ok(close_output) => {
+                                if close_output.status.success() {
+                                    info!("Successfully closed window {} (ID: {})", req.app_name, id);
+                                    Ok(Response::new(CloseApplicationResponse {
+                                        success: true,
+                                        error: String::new(),
+                                    }))
+                                } else {
+                                    // Fallback: Try pkill if wmctrl fails
+                                    info!("wmctrl failed, trying pkill for {}", req.app_name);
+                                    let _ = Command::new("pkill")
+                                        .arg("-f")
+                                        .arg(&req.app_name)
+                                        .output();
+                                    
+                                    Ok(Response::new(CloseApplicationResponse {
+                                        success: true,
+                                        error: String::new(),
+                                    }))
+                                }
+                            }
+                            Err(e) => {
+                                let error_msg = format!("Failed to close window: {}", e);
+                                error!("{}", error_msg);
+                                Ok(Response::new(CloseApplicationResponse {
+                                    success: false,
+                                    error: error_msg,
+                                }))
+                            }
+                        }
                     } else {
-                        let stderr = String::from_utf8_lossy(&output.stderr);
-                        let error_msg = format!("wmctrl failed to close window: {}", stderr);
-                        error!("{}", error_msg);
-                        Ok(Response::new(CloseApplicationResponse {
-                            success: false,
-                            error: error_msg,
-                        }))
+                        // No window found, try pkill as fallback
+                        info!("No window found for {}, trying pkill", req.app_name);
+                        match Command::new("pkill").arg("-f").arg(&req.app_name).output() {
+                            Ok(_) => {
+                                info!("Sent kill signal to {}", req.app_name);
+                                Ok(Response::new(CloseApplicationResponse {
+                                    success: true,
+                                    error: String::new(),
+                                }))
+                            }
+                            Err(e) => {
+                                let error_msg = format!("No window found and pkill failed: {}", e);
+                                error!("{}", error_msg);
+                                Ok(Response::new(CloseApplicationResponse {
+                                    success: false,
+                                    error: error_msg,
+                                }))
+                            }
+                        }
                     }
                 }
                 Err(e) => {
-                    let error_msg = format!("Failed to execute wmctrl: {}", e);
+                    let error_msg = format!("Failed to list windows: {}", e);
                     error!("{}", error_msg);
                     Ok(Response::new(CloseApplicationResponse {
                         success: false,
@@ -993,12 +1039,13 @@ fn capture_a11y_data() -> (Option<String>, Vec<crate::proto_gen::agent::Shortcut
         Ok(shortcuts) => {
             let tree = crate::a11y::capture::capture_accessibility_tree().ok();
             let proto_shortcuts = shortcuts.into_iter().map(|s| {
+                let is_single_key = s.normalized_keys.len() == 1;
                 crate::proto_gen::agent::ShortcutInfo {
                     name: s.name,
                     raw_shortcut: s.raw_shortcut,
                     normalized_keys: s.normalized_keys,
                     command: s.command,
-                    is_single_key: s.normalized_keys.len() == 1,
+                    is_single_key,
                 }
             }).collect();
             

@@ -11,6 +11,7 @@ mod platform;
 mod proto_gen;
 mod streaming;
 mod video;
+mod a11y;
 
 use agent::Agent;
 use grpc_service::DesktopAgentService;
@@ -46,11 +47,11 @@ async fn main() -> Result<()> {
     info!("Platform: {}", platform::get_platform_name());
     info!("System info: {:?}", platform::get_system_info()?);
     
-    // Start gRPC server
-    let addr = format!("127.0.0.1:{}", grpc_port).parse()?;
+    // Start gRPC server (bind to 0.0.0.0 for remote access)
+    let addr = format!("0.0.0.0:{}", grpc_port).parse()?;
     let service = DesktopAgentService::server();
     
-    info!("Starting gRPC server on {}", addr);
+    info!("Starting gRPC server on {} (accessible remotely)", addr);
     
     // Run gRPC server and agent concurrently
     tokio::select! {

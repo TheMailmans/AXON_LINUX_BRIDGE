@@ -1,6 +1,6 @@
 //! Linux Screen Capture
 //!
-//! Uses OSWorld's Python controller for reliable screenshot capture.
+//! Uses native scrot command for reliable screenshot capture.
 
 use anyhow::{Result, bail};
 use tracing::{info, debug, warn};
@@ -50,8 +50,8 @@ impl LinuxCapturer {
         
         self.frame_count += 1;
         
-        // Capture using OSWorld Python controller (proven to work)
-        let data = Self::capture_via_python_controller()?;
+        // Capture using native scrot command
+        let data = Self::capture_via_scrot()?;
         
         debug!("Captured frame {}: {} bytes", self.frame_count, data.len());
         
@@ -73,7 +73,7 @@ impl LinuxCapturer {
         // Just capture on-demand
         self.frame_count += 1;
         
-        let data = Self::capture_via_python_controller()?;
+        let data = Self::capture_via_scrot()?;
         
         debug!("Captured on-demand frame: {} bytes", data.len());
         
@@ -94,34 +94,37 @@ impl LinuxCapturer {
         self.is_capturing
     }
     
-    /// Capture screenshot using OSWorld Python controller
+    /// Capture screenshot using native scrot command
     /// 
-    /// This is the most reliable method as it reuses OSWorld's proven capture code.
-    fn capture_via_python_controller() -> Result<Vec<u8>> {
-        debug!("Capturing screenshot via Python controller");
+    /// This is the most reliable method - uses system scrot utility.
+    fn capture_via_scrot() -> Result<Vec<u8>> {
+        debug!("Capturing screenshot via scrot");
         
-        let output = Command::new("python3")
-            .arg("-c")
-            .arg(r#"
-import sys
-from desktop_env.controllers.python import PythonController
-controller = PythonController()
-screenshot = controller.get_screenshot()
-sys.stdout.buffer.write(screenshot)
-"#)
+        // Use temporary file for scrot output
+        let temp_path = format!("/tmp/axon_screenshot_{}.png", std::process::id());
+        
+        let output = Command::new("scrot")
+            .arg(&temp_path)
+            .arg("--overwrite")
             .output()?;
         
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
-            bail!("Python screenshot capture failed: {}", stderr);
+            bail!("scrot screenshot capture failed: {}", stderr);
         }
         
-        if output.stdout.is_empty() {
-            bail!("Python returned empty screenshot");
+        // Read the PNG file
+        let data = std::fs::read(&temp_path)?;
+        
+        // Clean up temp file
+        let _ = std::fs::remove_file(&temp_path);
+        
+        if data.is_empty() {
+            bail!("scrot returned empty screenshot");
         }
         
-        debug!("Python capture successful: {} bytes", output.stdout.len());
-        Ok(output.stdout)
+        debug!("scrot capture successful: {} bytes", data.len());
+        Ok(data)
     }
     
     /// Detect screen size using xdpyinfo
@@ -157,9 +160,9 @@ mod tests {
     use super::*;
     
     #[test]
-    #[ignore] // Only run on Linux with OSWorld environment
-    fn test_python_capture() {
-        let result = LinuxCapturer::capture_via_python_controller();
+    #[ignore] // Only run on Linux with scrot installed
+    fn test_scrot_capture() {
+        let result = LinuxCapturer::capture_via_scrot();
         assert!(result.is_ok());
         let data = result.unwrap();
         assert!(data.len() > 10000); // Should be at least 10KB for a screenshot
