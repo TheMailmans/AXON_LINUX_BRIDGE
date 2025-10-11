@@ -907,7 +907,36 @@ impl DesktopAgent for DesktopAgentService {
                     let app_lower = req.app_name.to_lowercase();
                     let window_id = windows
                         .lines()
-                        .find(|line| line.to_lowercase().contains(&app_lower))
+                        .find(|line| {
+                            let line_lower = line.to_lowercase();
+                            
+                            // Special handling for terminal windows
+                            if app_lower.contains("terminal") || app_lower == "gnome-terminal" {
+                                // Terminal windows show as "user@host: ~" or similar patterns
+                                line_lower.contains("@") && (line_lower.contains(": ~") || line_lower.contains(": /")) ||
+                                line_lower.contains("terminal") ||
+                                line_lower.contains("bash") ||
+                                line_lower.contains("shell")
+                            }
+                            // Special handling for file manager
+                            else if app_lower.contains("nautilus") || app_lower.contains("files") {
+                                line_lower.contains("home") ||
+                                line_lower.contains("documents") ||
+                                line_lower.contains("downloads") ||
+                                line_lower.contains("files") ||
+                                line_lower.contains("nautilus")
+                            }
+                            // Special handling for settings
+                            else if app_lower.contains("control-center") || app_lower.contains("settings") {
+                                line_lower.contains("settings") ||
+                                line_lower.contains("control center") ||
+                                line_lower.contains("preferences")
+                            }
+                            // Default: look for app name in window title
+                            else {
+                                line_lower.contains(&app_lower)
+                            }
+                        })
                         .and_then(|line| line.split_whitespace().next())
                         .map(|s| s.to_string());
                     
@@ -926,9 +955,17 @@ impl DesktopAgent for DesktopAgentService {
                                 } else {
                                     // Fallback: Try pkill if wmctrl fails
                                     info!("wmctrl failed, trying pkill for {}", req.app_name);
+                                    
+                                    // Use the actual process name for terminals
+                                    let process_name = if req.app_name.contains("terminal") {
+                                        "gnome-terminal"
+                                    } else {
+                                        &req.app_name
+                                    };
+                                    
                                     let _ = Command::new("pkill")
                                         .arg("-f")
-                                        .arg(&req.app_name)
+                                        .arg(process_name)
                                         .output();
                                     
                                     Ok(Response::new(CloseApplicationResponse {
@@ -949,7 +986,15 @@ impl DesktopAgent for DesktopAgentService {
                     } else {
                         // No window found, try pkill as fallback
                         info!("No window found for {}, trying pkill", req.app_name);
-                        match Command::new("pkill").arg("-f").arg(&req.app_name).output() {
+                        
+                        // Use the actual process name for terminals
+                        let process_name = if req.app_name.contains("terminal") {
+                            "gnome-terminal"
+                        } else {
+                            &req.app_name
+                        };
+                        
+                        match Command::new("pkill").arg("-f").arg(process_name).output() {
                             Ok(_) => {
                                 info!("Sent kill signal to {}", req.app_name);
                                 Ok(Response::new(CloseApplicationResponse {
