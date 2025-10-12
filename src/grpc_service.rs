@@ -9,7 +9,7 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use tokio::time::{interval, Duration};
 use tonic::{Request, Response, Status};
-use tracing::{info, error, debug};
+use tracing::{info, error, debug, warn};
 
 use crate::proto_gen::agent::desktop_agent_server::{DesktopAgent, DesktopAgentServer};
 use crate::proto_gen::agent::*;
@@ -1076,6 +1076,8 @@ impl DesktopAgent for DesktopAgentService {
         &self,
         request: Request<TakeScreenshotRequest>,
     ) -> Result<Response<TakeScreenshotResponse>, Status> {
+        use std::process::Command;
+        
         let req = request.into_inner();
         info!("Taking screenshot for agent: {}", req.agent_id);
         
@@ -1157,11 +1159,12 @@ impl DesktopAgent for DesktopAgentService {
         // Call our existing GetFrame implementation
         let frame_request = GetFrameRequest {
             agent_id: req.agent_id.clone(),
+            capture_id: String::new(),
         };
         
         match self.get_frame(Request::new(frame_request)).await {
             Ok(frame_response) => {
-                let frame_data = frame_response.into_inner().frame_data;
+                let frame_data = frame_response.into_inner().frame.map(|f| f.data).unwrap_or_default();
                 
                 // Save the screenshot data to file
                 match std::fs::write(&save_path, &frame_data) {
