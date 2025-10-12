@@ -1081,7 +1081,12 @@ impl DesktopAgent for DesktopAgentService {
         
         // Generate default path if not provided
         let timestamp = chrono::Local::now().format("%Y%m%d_%H%M%S");
-        let default_path = format!("/home/ubuntu/Pictures/screenshot_{}.png", timestamp);
+        
+        // Use actual user's home directory, fallback to /tmp
+        let home_dir = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
+        let pictures_dir = format!("{}/Pictures", home_dir);
+        let default_path = format!("{}/screenshot_{}.png", pictures_dir, timestamp);
+        
         let save_path = if req.save_path.is_empty() { 
             default_path.clone()
         } else { 
@@ -1089,7 +1094,9 @@ impl DesktopAgent for DesktopAgentService {
         };
         
         // Ensure Pictures directory exists
-        let _ = std::fs::create_dir_all("/home/ubuntu/Pictures");
+        if let Err(e) = std::fs::create_dir_all(&pictures_dir) {
+            warn!("Failed to create Pictures directory: {}, using /tmp", e);
+        }
         
         // Method 1: Try gnome-screenshot first (most reliable for GNOME desktop)
         match Command::new("gnome-screenshot")
