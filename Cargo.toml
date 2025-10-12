@@ -43,6 +43,9 @@ uuid = { version = "1.6", features = ["v4"] }
 # Hostname detection
 hostname = "0.3"
 
+# Date/time handling
+chrono = "0.4"
+
 # Video encoding
 libc = "0.2"
 # H.264 encoding (software fallback)

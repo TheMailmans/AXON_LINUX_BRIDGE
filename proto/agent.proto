@@ -39,6 +39,9 @@ service DesktopAgent {
   // Application control
   rpc LaunchApplication(LaunchApplicationRequest) returns (LaunchApplicationResponse);
   rpc CloseApplication(CloseApplicationRequest) returns (CloseApplicationResponse);
+  
+  // Screenshot capture
+  rpc TakeScreenshot(TakeScreenshotRequest) returns (TakeScreenshotResponse);
 }
 
 // Connection
@@ -332,4 +335,18 @@ message CloseApplicationRequest {
 message CloseApplicationResponse {
   bool success = 1;
   string error = 2;
+}
+
+// Screenshot request
+message TakeScreenshotRequest {
+  string agent_id = 1;
+  string save_path = 2;  // Optional path to save screenshot
+}
+
+// Screenshot response
+message TakeScreenshotResponse {
+  bool success = 1;
+  string file_path = 2;  // Path where screenshot was saved
+  string error = 3;
+  bytes image_data = 4;  // Optional: Include image data in response
 }

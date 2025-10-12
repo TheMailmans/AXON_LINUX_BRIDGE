@@ -1071,6 +1071,126 @@ impl DesktopAgent for DesktopAgentService {
             Err(Status::unimplemented("CloseApplication only supported on Linux and macOS"))
         }
     }
+    
+    async fn take_screenshot(
+        &self,
+        request: Request<TakeScreenshotRequest>,
+    ) -> Result<Response<TakeScreenshotResponse>, Status> {
+        let req = request.into_inner();
+        info!("Taking screenshot for agent: {}", req.agent_id);
+        
+        // Generate default path if not provided
+        let timestamp = chrono::Local::now().format("%Y%m%d_%H%M%S");
+        let default_path = format!("/home/ubuntu/Pictures/screenshot_{}.png", timestamp);
+        let save_path = if req.save_path.is_empty() { 
+            default_path.clone()
+        } else { 
+            req.save_path.clone()
+        };
+        
+        // Ensure Pictures directory exists
+        let _ = std::fs::create_dir_all("/home/ubuntu/Pictures");
+        
+        // Method 1: Try gnome-screenshot first (most reliable for GNOME desktop)
+        match Command::new("gnome-screenshot")
+            .arg("-f")  // File output
+            .arg(&save_path)
+            .env("DISPLAY", ":0")
+            .output() {
+            Ok(output) if output.status.success() => {
+                info!("Screenshot saved using gnome-screenshot: {}", save_path);
+                
+                // Read the image data to include in response (optional)
+                let image_data = std::fs::read(&save_path).unwrap_or_default();
+                
+                return Ok(Response::new(TakeScreenshotResponse {
+                    success: true,
+                    file_path: save_path,
+                    error: String::new(),
+                    image_data,
+                }));
+            }
+            Ok(output) => {
+                debug!("gnome-screenshot failed: {:?}", String::from_utf8_lossy(&output.stderr));
+            }
+            Err(e) => {
+                debug!("gnome-screenshot not available: {}", e);
+            }
+        }
+        
+        // Method 2: Fallback to scrot (lightweight screenshot tool)
+        match Command::new("scrot")
+            .arg(&save_path)
+            .env("DISPLAY", ":0")
+            .output() {
+            Ok(output) if output.status.success() => {
+                info!("Screenshot saved using scrot: {}", save_path);
+                
+                // Read the image data to include in response (optional)
+                let image_data = std::fs::read(&save_path).unwrap_or_default();
+                
+                return Ok(Response::new(TakeScreenshotResponse {
+                    success: true,
+                    file_path: save_path,
+                    error: String::new(),
+                    image_data,
+                }));
+            }
+            Ok(output) => {
+                debug!("scrot failed: {:?}", String::from_utf8_lossy(&output.stderr));
+            }
+            Err(e) => {
+                debug!("scrot not available: {}", e);
+            }
+        }
+        
+        // Method 3: Use existing GetFrame method to capture and save
+        info!("Falling back to GetFrame method for screenshot");
+        
+        // Call our existing GetFrame implementation
+        let frame_request = GetFrameRequest {
+            agent_id: req.agent_id.clone(),
+        };
+        
+        match self.get_frame(Request::new(frame_request)).await {
+            Ok(frame_response) => {
+                let frame_data = frame_response.into_inner().frame_data;
+                
+                // Save the screenshot data to file
+                match std::fs::write(&save_path, &frame_data) {
+                    Ok(_) => {
+                        info!("Screenshot saved using GetFrame: {}", save_path);
+                        Ok(Response::new(TakeScreenshotResponse {
+                            success: true,
+                            file_path: save_path,
+                            error: String::new(),
+                            image_data: frame_data,
+                        }))
+                    }
+                    Err(e) => {
+                        let error_msg = format!("Failed to save screenshot: {}", e);
+                        error!("{}", error_msg);
+                        Ok(Response::new(TakeScreenshotResponse {
+                            success: false,
+                            file_path: String::new(),
+                            error: error_msg,
+                            image_data: vec![],
+                        }))
+                    }
+                }
+            }
+            Err(e) => {
+                let error_msg = format!("Failed to capture screenshot: {}", e);
+                error!("{}", error_msg);
+                Ok(Response::new(TakeScreenshotResponse {
+                    success: false,
+                    file_path: String::new(),
+                    error: error_msg,
+                    image_data: vec![],
+                }))
+            }
+        }
+    }
 }
 
 /// Capture accessibility tree and extract shortcuts
