@@ -12,6 +12,9 @@ pub mod audio;
 pub mod input;
 pub mod a11y;
 
+#[cfg(target_os = "linux")]
+pub mod desktop_apps;
+
 // Re-export commonly used types
 pub use audio::{AudioConfig, AudioFrame, AudioSource, AudioCapturer, EncodedAudioFrame};
 pub use video::{VideoEncoder, EncodedFrame};

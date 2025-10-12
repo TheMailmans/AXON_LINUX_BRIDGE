@@ -14,18 +14,25 @@ use tracing::{info, error, debug, warn};
 use crate::proto_gen::agent::desktop_agent_server::{DesktopAgent, DesktopAgentServer};
 use crate::proto_gen::agent::*;
 use crate::agent::Agent;
+#[cfg(target_os = "linux")]
+use crate::desktop_apps::{AppIndex, launch_with_gio, launch_with_gtk, launch_with_xdg, launch_direct_exec};
 use tokio_stream::Stream;
 use std::pin::Pin;
 
 /// gRPC service wrapper around Agent
 pub struct DesktopAgentService {
     agent: Arc<RwLock<Option<Agent>>>,
+    #[cfg(target_os = "linux")]
+    app_index: Arc<RwLock<AppIndex>>,
 }
 
 impl DesktopAgentService {
     pub fn new() -> Self {
+        info!("🚀 Initializing Desktop Agent Service...");
         Self {
             agent: Arc::new(RwLock::new(None)),
+            #[cfg(target_os = "linux")]
+            app_index: Arc::new(RwLock::new(AppIndex::new())),
         }
     }
     
@@ -789,50 +796,73 @@ impl DesktopAgent for DesktopAgentService {
         request: Request<LaunchApplicationRequest>,
     ) -> Result<Response<LaunchApplicationResponse>, Status> {
         let req = request.into_inner();
-        info!("LaunchApplication called: app_name={}", req.app_name);
+        info!("🚀 LaunchApplication called: app_name={}", req.app_name);
         
         #[cfg(target_os = "linux")]
         {
-            use std::process::Command;
+            // Universal application launcher using FreeDesktop.org standards
+            // Get read lock on app index
+            let index = self.app_index.read().await;
             
-            // Map friendly names to actual Linux binaries
-            let binary_name = match req.app_name.to_lowercase().as_str() {
-                "calculator" | "calc" => "gnome-calculator",
-                "terminal" | "term" => "gnome-terminal",
-                "files" | "file-manager" | "nautilus" => "nautilus",
-                "firefox" => "firefox",
-                "chrome" | "google-chrome" => "google-chrome",
-                "text-editor" | "gedit" => "gedit",
-                "settings" => "gnome-control-center",
-                _ => {
-                    let err_msg = format!("Unknown application: {}", req.app_name);
-                    error!("{}", err_msg);
+            // Find matching app via fuzzy search
+            let app = match index.find_app(&req.app_name) {
+                Some(app) => app.clone(),
+                None => {
+                    let err = format!("❌ No matching application found for: {}", req.app_name);
+                    error!("{}", err);
                     return Ok(Response::new(LaunchApplicationResponse {
                         success: false,
-                        error: err_msg,
+                        error: err,
                     }));
                 }
             };
             
-            info!("Launching binary: {}", binary_name);
+            info!("🎯 Matched '{}' to '{}' ({})", req.app_name, app.name, app.id);
             
-            match Command::new(binary_name).spawn() {
-                Ok(child) => {
-                    info!("Successfully launched {} (PID: {})", binary_name, child.id());
-                    Ok(Response::new(LaunchApplicationResponse {
-                        success: true,
-                        error: String::new(),
-                    }))
-                }
-                Err(e) => {
-                    let error_msg = format!("Failed to launch {}: {}", binary_name, e);
-                    error!("{}", error_msg);
-                    Ok(Response::new(LaunchApplicationResponse {
-                        success: false,
-                        error: error_msg,
-                    }))
-                }
+            // Try launch strategies in order of reliability
+            // 1. gio launch (best for GNOME)
+            if launch_with_gio(&app.id).await.unwrap_or(false) {
+                info!("✅ Launched {} via gio", app.name);
+                return Ok(Response::new(LaunchApplicationResponse {
+                    success: true,
+                    error: String::new(),
+                }));
             }
+            
+            // 2. gtk-launch (GTK fallback)
+            if launch_with_gtk(&app.id).await.unwrap_or(false) {
+                info!("✅ Launched {} via gtk-launch", app.name);
+                return Ok(Response::new(LaunchApplicationResponse {
+                    success: true,
+                    error: String::new(),
+                }));
+            }
+            
+            // 3. xdg-open (cross-desktop fallback)
+            if launch_with_xdg(&app.path).await.unwrap_or(false) {
+                info!("✅ Launched {} via xdg-open", app.name);
+                return Ok(Response::new(LaunchApplicationResponse {
+                    success: true,
+                    error: String::new(),
+                }));
+            }
+            
+            // 4. Direct exec (last resort)
+            if launch_direct_exec(&app.exec).await.unwrap_or(false) {
+                info!("✅ Launched {} via direct exec", app.name);
+                return Ok(Response::new(LaunchApplicationResponse {
+                    success: true,
+                    error: String::new(),
+                }));
+            }
+            
+            // All strategies failed
+            let err = format!("❌ All launch strategies failed for: {}", app.name);
+            error!("{}", err);
+            Ok(Response::new(LaunchApplicationResponse {
+                success: false,
+                error: err,
+            }))
         }
         
         #[cfg(target_os = "macos")]
