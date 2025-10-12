@@ -1077,109 +1077,134 @@ impl DesktopAgent for DesktopAgentService {
         &self,
         request: Request<TakeScreenshotRequest>,
     ) -> Result<Response<TakeScreenshotResponse>, Status> {
-        use std::process::Command;
-        
         let req = request.into_inner();
         info!("Taking screenshot for agent: {}", req.agent_id);
         
-        // Generate default path if not provided
-        let timestamp = chrono::Local::now().format("%Y%m%d_%H%M%S");
-        
-        // Use actual user's home directory, fallback to /tmp
-        let home_dir = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
-        let pictures_dir = format!("{}/Pictures", home_dir);
-        let default_path = format!("{}/screenshot_{}.png", pictures_dir, timestamp);
-        
-        let save_path = if req.save_path.is_empty() { 
-            default_path.clone()
-        } else { 
-            req.save_path.clone()
-        };
-        
-        // Ensure Pictures directory exists
-        if let Err(e) = std::fs::create_dir_all(&pictures_dir) {
-            warn!("Failed to create Pictures directory: {}, using /tmp", e);
-        }
-        
-        // Method 1: Try gnome-screenshot first (most reliable for GNOME desktop)
-        match Command::new("gnome-screenshot")
-            .arg("-f")  // File output
-            .arg(&save_path)
-            .env("DISPLAY", ":0")
-            .output() {
-            Ok(output) if output.status.success() => {
-                info!("Screenshot saved using gnome-screenshot: {}", save_path);
-                
-                // Read the image data to include in response (optional)
-                let image_data = std::fs::read(&save_path).unwrap_or_default();
-                
-                return Ok(Response::new(TakeScreenshotResponse {
-                    success: true,
-                    file_path: save_path,
-                    error: String::new(),
-                    image_data,
-                }));
+        // Use spawn_blocking to avoid blocking the async runtime
+        let result = tokio::task::spawn_blocking(move || {
+            use std::process::Command;
+            
+            // Generate default path if not provided
+            let timestamp = chrono::Local::now().format("%Y%m%d_%H%M%S");
+            
+            // Use actual user's home directory, fallback to /tmp
+            let home_dir = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
+            let pictures_dir = format!("{}/Pictures", home_dir);
+            let default_path = format!("{}/screenshot_{}.png", pictures_dir, timestamp);
+            
+            let save_path = if req.save_path.is_empty() { 
+                default_path.clone()
+            } else { 
+                req.save_path.clone()
+            };
+            
+            // Ensure Pictures directory exists
+            if let Err(e) = std::fs::create_dir_all(&pictures_dir) {
+                tracing::warn!("Failed to create Pictures directory: {}, using /tmp", e);
             }
-            Ok(output) => {
-                debug!("gnome-screenshot failed: {:?}", String::from_utf8_lossy(&output.stderr));
+            
+            // Method 1: Try gnome-screenshot first (most reliable for GNOME desktop)
+            match Command::new("gnome-screenshot")
+                .arg("-f")  // File output
+                .arg(&save_path)
+                .env("DISPLAY", ":0")
+                .output() {
+                Ok(output) if output.status.success() => {
+                    tracing::info!("Screenshot saved using gnome-screenshot: {}", save_path);
+                    
+                    // Read the image data to include in response (optional)
+                    let image_data = std::fs::read(&save_path).unwrap_or_default();
+                    
+                    return Ok((true, save_path, String::new(), image_data));
+                }
+                Ok(output) => {
+                    tracing::debug!("gnome-screenshot failed: {:?}", String::from_utf8_lossy(&output.stderr));
+                }
+                Err(e) => {
+                    tracing::debug!("gnome-screenshot not available: {}", e);
+                }
+            }
+            
+            // Method 2: Fallback to scrot (lightweight screenshot tool)
+            match Command::new("scrot")
+                .arg(&save_path)
+                .env("DISPLAY", ":0")
+                .output() {
+                Ok(output) if output.status.success() => {
+                    tracing::info!("Screenshot saved using scrot: {}", save_path);
+                    
+                    // Read the image data to include in response (optional)
+                    let image_data = std::fs::read(&save_path).unwrap_or_default();
+                    
+                    return Ok((true, save_path, String::new(), image_data));
+                }
+                Ok(output) => {
+                    tracing::debug!("scrot failed: {:?}", String::from_utf8_lossy(&output.stderr));
+                }
+                Err(e) => {
+                    tracing::debug!("scrot not available: {}", e);
+                }
+            }
+            
+            // Both methods failed
+            Err(anyhow::anyhow!("No screenshot method available"))
+        })
+        .await
+        .map_err(|e| Status::internal(format!("Task join error: {}", e)))?;
+        
+        match result {
+            Ok((success, file_path, error, image_data)) => {
+                Ok(Response::new(TakeScreenshotResponse {
+                    success,
+                    file_path,
+                    error,
+                    image_data,
+                }))
             }
             Err(e) => {
-                debug!("gnome-screenshot not available: {}", e);
-            }
-        }
-        
-        // Method 2: Fallback to scrot (lightweight screenshot tool)
-        match Command::new("scrot")
-            .arg(&save_path)
-            .env("DISPLAY", ":0")
-            .output() {
-            Ok(output) if output.status.success() => {
-                info!("Screenshot saved using scrot: {}", save_path);
+                // Method 3: Use existing GetFrame method to capture and save  
+                info!("Falling back to GetFrame method for screenshot");
                 
-                // Read the image data to include in response (optional)
-                let image_data = std::fs::read(&save_path).unwrap_or_default();
+                // Call our existing GetFrame implementation
+                let frame_request = GetFrameRequest {
+                    agent_id: req.agent_id.clone(),
+                    capture_id: String::new(),
+                };
                 
-                return Ok(Response::new(TakeScreenshotResponse {
-                    success: true,
-                    file_path: save_path,
-                    error: String::new(),
-                    image_data,
-                }));
-            }
-            Ok(output) => {
-                debug!("scrot failed: {:?}", String::from_utf8_lossy(&output.stderr));
-            }
-            Err(e) => {
-                debug!("scrot not available: {}", e);
-            }
-        }
-        
-        // Method 3: Use existing GetFrame method to capture and save
-        info!("Falling back to GetFrame method for screenshot");
-        
-        // Call our existing GetFrame implementation
-        let frame_request = GetFrameRequest {
-            agent_id: req.agent_id.clone(),
-            capture_id: String::new(),
-        };
-        
-        match self.get_frame(Request::new(frame_request)).await {
-            Ok(frame_response) => {
-                let frame_data = frame_response.into_inner().frame.map(|f| f.data).unwrap_or_default();
-                
-                // Save the screenshot data to file
-                match std::fs::write(&save_path, &frame_data) {
-                    Ok(_) => {
-                        info!("Screenshot saved using GetFrame: {}", save_path);
-                        Ok(Response::new(TakeScreenshotResponse {
-                            success: true,
-                            file_path: save_path,
-                            error: String::new(),
-                            image_data: frame_data,
-                        }))
+                match self.get_frame(Request::new(frame_request)).await {
+                    Ok(frame_response) => {
+                        let frame_data = frame_response.into_inner().frame.map(|f| f.data).unwrap_or_default();
+                        let save_path = format!("/tmp/screenshot_{}.png", chrono::Local::now().format("%Y%m%d_%H%M%S"));
+                        
+                        // Save using spawn_blocking for the file write
+                        let save_path_clone = save_path.clone();
+                        let frame_data_clone = frame_data.clone();
+                        match tokio::task::spawn_blocking(move || {
+                            std::fs::write(&save_path_clone, &frame_data_clone)
+                        }).await {
+                            Ok(Ok(_)) => {
+                                info!("Screenshot saved using GetFrame: {}", save_path);
+                                Ok(Response::new(TakeScreenshotResponse {
+                                    success: true,
+                                    file_path: save_path,
+                                    error: String::new(),
+                                    image_data: frame_data,
+                                }))
+                            }
+                            _ => {
+                                let error_msg = format!("Failed to save screenshot: {}", e);
+                                error!("{}", error_msg);
+                                Ok(Response::new(TakeScreenshotResponse {
+                                    success: false,
+                                    file_path: String::new(),
+                                    error: error_msg,
+                                    image_data: vec![],
+                                }))
+                            }
+                        }
                     }
                     Err(e) => {
-                        let error_msg = format!("Failed to save screenshot: {}", e);
+                        let error_msg = format!("Failed to capture screenshot: {}", e);
                         error!("{}", error_msg);
                         Ok(Response::new(TakeScreenshotResponse {
                             success: false,
@@ -1189,16 +1214,6 @@ impl DesktopAgent for DesktopAgentService {
                         }))
                     }
                 }
-            }
-            Err(e) => {
-                let error_msg = format!("Failed to capture screenshot: {}", e);
-                error!("{}", error_msg);
-                Ok(Response::new(TakeScreenshotResponse {
-                    success: false,
-                    file_path: String::new(),
-                    error: error_msg,
-                    image_data: vec![],
-                }))
             }
         }
     }
