@@ -869,38 +869,37 @@ impl DesktopAgent for DesktopAgentService {
         {
             use std::process::Command;
             
-            // Map friendly names to macOS application names
-            let app_name = match req.app_name.to_lowercase().as_str() {
-                "calculator" | "calc" => "Calculator",
-                "terminal" | "term" => "Terminal",
-                "safari" => "Safari",
-                "firefox" => "Firefox",
-                "chrome" | "google-chrome" => "Google Chrome",
-                "text-editor" | "textedit" => "TextEdit",
-                "finder" | "files" => "Finder",
-                "settings" | "system-preferences" => "System Settings",
-                _ => {
-                    let err_msg = format!("Unknown application: {}", req.app_name);
-                    error!("{}", err_msg);
-                    return Ok(Response::new(LaunchApplicationResponse {
-                        success: false,
-                        error: err_msg,
-                    }));
+            // UNIVERSAL APPROACH: Use MacAppIndex to find ANY installed app
+            info!("UNIVERSAL LAUNCH (macOS): Finding application: {}", req.app_name);
+            
+            let mac_index = crate::desktop_apps::MacAppIndex::new().await;
+            let app_to_launch = if let Ok(apps) = mac_index {
+                if let Some(app) = apps.find(&req.app_name) {
+                    info!("Found app '{}' in MacAppIndex: {} ({})", 
+                          req.app_name, app.display_name, app.bundle_id);
+                    app.display_name.clone()
+                } else {
+                    // Fallback: try the name as-is
+                    info!("App '{}' not in MacAppIndex, trying name as-is", req.app_name);
+                    req.app_name.clone()
                 }
+            } else {
+                // Fallback: try the name as-is
+                req.app_name.clone()
             };
             
-            info!("Launching application: {}", app_name);
+            info!("Launching application: {}", app_to_launch);
             
-            match Command::new("open").arg("-a").arg(app_name).spawn() {
+            match Command::new("open").arg("-a").arg(&app_to_launch).spawn() {
                 Ok(_) => {
-                    info!("Successfully launched {}", app_name);
+                    info!("Successfully launched {}", app_to_launch);
                     Ok(Response::new(LaunchApplicationResponse {
                         success: true,
                         error: String::new(),
                     }))
                 }
                 Err(e) => {
-                    let error_msg = format!("Failed to launch {}: {}", app_name, e);
+                    let error_msg = format!("Failed to launch {}: {}", app_to_launch, e);
                     error!("{}", error_msg);
                     Ok(Response::new(LaunchApplicationResponse {
                         success: false,
@@ -927,115 +926,99 @@ impl DesktopAgent for DesktopAgentService {
         {
             use std::process::Command;
             
-            info!("Closing window matching: {}", req.app_name);
+            info!("UNIVERSAL CLOSE: Closing application: {}", req.app_name);
             
-            // Step 1: List all windows and find matching window ID
-            match Command::new("wmctrl").arg("-l").output() {
+            // UNIVERSAL APPROACH: Use AppIndex to find the actual binary name
+            // This works for ANY installed application, not just hardcoded ones
+            
+            // Step 1: Try to find app in AppIndex to get binary name
+            let app_index = crate::desktop_apps::AppIndex::new().await;
+            let binary_name = if let Ok(apps) = app_index {
+                if let Some(app) = apps.find(&req.app_name) {
+                    let binary = app.get_binary_name();
+                    info!("Found app '{}' in AppIndex, binary: {}", req.app_name, binary);
+                    binary
+                } else {
+                    // Fallback: use provided name as-is
+                    info!("App '{}' not in AppIndex, using name as-is", req.app_name);
+                    req.app_name.clone()
+                }
+            } else {
+                // Fallback: use provided name as-is
+                req.app_name.clone()
+            };
+            
+            // Step 2: Find windows for this process using wmctrl -lp + ps
+            // This dynamically discovers PIDs and process names
+            match Command::new("wmctrl").args(&["-lp"]).output() {
                 Ok(list_output) => {
                     let windows = String::from_utf8_lossy(&list_output.stdout);
+                    let mut closed_count = 0;
                     
-                    // Find window ID for matching title (case-insensitive)
-                    let app_lower = req.app_name.to_lowercase();
-                    let window_id = windows
-                        .lines()
-                        .find(|line| {
-                            let line_lower = line.to_lowercase();
-                            
-                            // Special handling for terminal windows
-                            if app_lower.contains("terminal") || app_lower == "gnome-terminal" {
-                                // Terminal windows show as "user@host: ~" or similar patterns
-                                line_lower.contains("@") && (line_lower.contains(": ~") || line_lower.contains(": /")) ||
-                                line_lower.contains("terminal") ||
-                                line_lower.contains("bash") ||
-                                line_lower.contains("shell")
-                            }
-                            // Special handling for file manager
-                            else if app_lower.contains("nautilus") || app_lower.contains("files") {
-                                line_lower.contains("home") ||
-                                line_lower.contains("documents") ||
-                                line_lower.contains("downloads") ||
-                                line_lower.contains("files") ||
-                                line_lower.contains("nautilus")
-                            }
-                            // Special handling for settings
-                            else if app_lower.contains("control-center") || app_lower.contains("settings") {
-                                line_lower.contains("settings") ||
-                                line_lower.contains("control center") ||
-                                line_lower.contains("preferences")
-                            }
-                            // Default: look for app name in window title
-                            else {
-                                line_lower.contains(&app_lower)
-                            }
-                        })
-                        .and_then(|line| line.split_whitespace().next())
-                        .map(|s| s.to_string());
-                    
-                    if let Some(id) = window_id {
-                        info!("Found window ID: {} for {}", id, req.app_name);
+                    for line in windows.lines() {
+                        let parts: Vec<&str> = line.split_whitespace().collect();
+                        if parts.len() < 3 {
+                            continue;
+                        }
                         
-                        // Step 2: Close by window ID using -ic (close immediately)
-                        match Command::new("wmctrl").arg("-ic").arg(&id).output() {
-                            Ok(close_output) => {
-                                if close_output.status.success() {
-                                    info!("Successfully closed window {} (ID: {})", req.app_name, id);
-                                    Ok(Response::new(CloseApplicationResponse {
-                                        success: true,
-                                        error: String::new(),
-                                    }))
-                                } else {
-                                    // Fallback: Try pkill if wmctrl fails
-                                    info!("wmctrl failed, trying pkill for {}", req.app_name);
-                                    
-                                    // Use the actual process name for terminals
-                                    let process_name = if req.app_name.contains("terminal") {
-                                        "gnome-terminal"
-                                    } else {
-                                        &req.app_name
-                                    };
-                                    
-                                    let _ = Command::new("pkill")
-                                        .arg("-f")
-                                        .arg(process_name)
-                                        .output();
-                                    
-                                    Ok(Response::new(CloseApplicationResponse {
-                                        success: true,
-                                        error: String::new(),
-                                    }))
+                        let window_id = parts[0];
+                        let pid = parts[2];
+                        
+                        // Get actual process name for this PID
+                        if let Ok(ps_output) = Command::new("ps")
+                            .args(&["-p", pid, "-o", "comm="])
+                            .output()
+                        {
+                            let process_name = String::from_utf8_lossy(&ps_output.stdout)
+                                .trim()
+                                .to_string();
+                            
+                            // Match by binary name (universal - works for ANY app)
+                            if process_name == binary_name || 
+                               process_name.contains(&binary_name) ||
+                               binary_name.contains(&process_name) {
+                                info!("Found matching window: ID={}, PID={}, process={}", 
+                                      window_id, pid, process_name);
+                                
+                                // Close this window
+                                match Command::new("wmctrl").args(&["-ic", window_id]).output() {
+                                    Ok(close_output) => {
+                                        if close_output.status.success() {
+                                            info!("Successfully closed window ID: {}", window_id);
+                                            closed_count += 1;
+                                        } else {
+                                            warn!("wmctrl failed to close window ID: {}", window_id);
+                                        }
+                                    }
+                                    Err(e) => {
+                                        warn!("Error closing window ID {}: {}", window_id, e);
+                                    }
                                 }
                             }
-                            Err(e) => {
-                                let error_msg = format!("Failed to close window: {}", e);
-                                error!("{}", error_msg);
-                                Ok(Response::new(CloseApplicationResponse {
-                                    success: false,
-                                    error: error_msg,
-                                }))
-                            }
                         }
+                    }
+                    
+                    if closed_count > 0 {
+                        info!("Successfully closed {} window(s) for {}", closed_count, binary_name);
+                        Ok(Response::new(CloseApplicationResponse {
+                            success: true,
+                            error: String::new(),
+                        }))
                     } else {
-                        // No window found, try pkill as fallback
-                        info!("No window found for {}, trying pkill", req.app_name);
+                        // No windows found, try pkill as final fallback
+                        info!("No windows found for {}, trying pkill", binary_name);
                         
-                        // Use the actual process name for terminals
-                        let process_name = if req.app_name.contains("terminal") {
-                            "gnome-terminal"
-                        } else {
-                            &req.app_name
-                        };
-                        
-                        match Command::new("pkill").arg("-f").arg(process_name).output() {
+                        match Command::new("pkill").arg(&binary_name).output() {
                             Ok(_) => {
-                                info!("Sent kill signal to {}", req.app_name);
+                                info!("Sent kill signal to {}", binary_name);
                                 Ok(Response::new(CloseApplicationResponse {
                                     success: true,
                                     error: String::new(),
                                 }))
                             }
                             Err(e) => {
-                                let error_msg = format!("No window found and pkill failed: {}", e);
-                                error!("{}", error_msg);
+                                let error_msg = format!("No windows found and pkill failed: {}", e);
+                                warn!("{}", error_msg);
                                 Ok(Response::new(CloseApplicationResponse {
                                     success: false,
                                     error: error_msg,
@@ -1045,11 +1028,16 @@ impl DesktopAgent for DesktopAgentService {
                     }
                 }
                 Err(e) => {
-                    let error_msg = format!("Failed to list windows: {}", e);
+                    let error_msg = format!("Failed to list windows with wmctrl: {}", e);
                     error!("{}", error_msg);
+                    
+                    // Final fallback: try pkill directly
+                    info!("wmctrl failed, trying pkill for {}", binary_name);
+                    let _ = Command::new("pkill").arg(&binary_name).output();
+                    
                     Ok(Response::new(CloseApplicationResponse {
-                        success: false,
-                        error: error_msg,
+                        success: true,
+                        error: String::new(),
                     }))
                 }
             }

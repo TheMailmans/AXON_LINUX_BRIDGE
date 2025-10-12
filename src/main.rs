@@ -15,6 +15,9 @@ mod streaming;
 mod video;
 mod a11y;
 
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+mod desktop_apps;
+
 use agent::Agent;
 use grpc_service::DesktopAgentService;
 

@@ -12,7 +12,7 @@ pub mod audio;
 pub mod input;
 pub mod a11y;
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 pub mod desktop_apps;
 
 // Re-export commonly used types
