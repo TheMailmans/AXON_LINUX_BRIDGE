@@ -928,32 +928,46 @@ impl DesktopAgent for DesktopAgentService {
             
             info!("UNIVERSAL CLOSE: Closing application: {}", req.app_name);
             
-            // UNIVERSAL APPROACH: Use AppIndex to find the actual binary name
-            // This works for ANY installed application, not just hardcoded ones
+            // UNIVERSAL APPROACH: Handle BOTH app names ("Calculator") AND process names ("gnome-calculator")
+            // This works for ANY installed application, regardless of input format
             
-            // Step 1: Try to find app in AppIndex to get binary name
-            let app_index = crate::desktop_apps::AppIndex::new().await;
-            let binary_name = if let Ok(apps) = app_index {
-                if let Some(app) = apps.find(&req.app_name) {
-                    let binary = app.get_binary_name();
-                    info!("Found app '{}' in AppIndex, binary: {}", req.app_name, binary);
-                    binary
+            // Detect if input is already a process name (lowercase with dashes/underscores)
+            let is_process_name = req.app_name.chars().any(|c| c == '-' || c == '_') && 
+                                  req.app_name.chars().all(|c| !c.is_uppercase());
+            
+            let binary_name = if is_process_name {
+                // Input looks like a process name - use directly without AppIndex lookup
+                info!("Input '{}' detected as process name, using directly", req.app_name);
+                req.app_name.clone()
+            } else {
+                // Input looks like an app name - try AppIndex lookup
+                info!("Input '{}' detected as app name, looking up in AppIndex", req.app_name);
+                let app_index = crate::desktop_apps::AppIndex::new().await;
+                if let Ok(apps) = app_index {
+                    if let Some(app) = apps.find(&req.app_name) {
+                        let binary = app.get_binary_name();
+                        info!("Found app '{}' in AppIndex, binary: {}", req.app_name, binary);
+                        binary
+                    } else {
+                        // Fallback: use provided name as-is
+                        info!("App '{}' not in AppIndex, using name as-is", req.app_name);
+                        req.app_name.clone()
+                    }
                 } else {
                     // Fallback: use provided name as-is
-                    info!("App '{}' not in AppIndex, using name as-is", req.app_name);
                     req.app_name.clone()
                 }
-            } else {
-                // Fallback: use provided name as-is
-                req.app_name.clone()
             };
             
             // Step 2: Find windows for this process using wmctrl -lp + ps
             // This dynamically discovers PIDs and process names
+            info!("Searching for windows matching binary: {}", binary_name);
+            
             match Command::new("wmctrl").args(&["-lp"]).output() {
                 Ok(list_output) => {
                     let windows = String::from_utf8_lossy(&list_output.stdout);
                     let mut closed_count = 0;
+                    let mut checked_count = 0;
                     
                     for line in windows.lines() {
                         let parts: Vec<&str> = line.split_whitespace().collect();
@@ -973,12 +987,21 @@ impl DesktopAgent for DesktopAgentService {
                                 .trim()
                                 .to_string();
                             
-                            // Match by binary name (universal - works for ANY app)
-                            if process_name == binary_name || 
-                               process_name.contains(&binary_name) ||
-                               binary_name.contains(&process_name) {
-                                info!("Found matching window: ID={}, PID={}, process={}", 
-                                      window_id, pid, process_name);
+                            checked_count += 1;
+                            debug!("Checking window: ID={}, PID={}, process={} (looking for: {})", 
+                                   window_id, pid, process_name, binary_name);
+                            
+                            // UNIVERSAL MATCHING: Handle multiple formats
+                            // - Exact match: "gnome-calculator" == "gnome-calculator"
+                            // - Contains: "nautilus" contains "nautilus"
+                            // - Partial: "gnome-terminal-server" contains "terminal"
+                            let matches = process_name == binary_name || 
+                                         process_name.contains(&binary_name) ||
+                                         binary_name.contains(&process_name);
+                            
+                            if matches {
+                                info!("✅ MATCH! Window ID={}, PID={}, process={} matches {}", 
+                                      window_id, pid, process_name, binary_name);
                                 
                                 // Close this window
                                 match Command::new("wmctrl").args(&["-ic", window_id]).output() {
@@ -997,6 +1020,8 @@ impl DesktopAgent for DesktopAgentService {
                             }
                         }
                     }
+                    
+                    info!("Checked {} windows, closed {} matching '{}'", checked_count, closed_count, binary_name);
                     
                     if closed_count > 0 {
                         info!("Successfully closed {} window(s) for {}", closed_count, binary_name);
