@@ -5,6 +5,8 @@ use tracing_subscriber;
 mod agent;
 mod audio;
 mod capture;
+#[cfg(target_os = "linux")]
+mod desktop_apps;
 mod grpc_service;
 mod input;
 mod platform;
