@@ -161,18 +161,19 @@ impl DesktopAgent for DesktopAgentService {
             use crate::capture::linux::LinuxCapturer;
             use crate::capture::CaptureConfig;
             
-            let mut capturer = LinuxCapturer::new()
-                .map_err(|e| Status::internal(format!("Failed to create capturer: {}", e)))?;
-            
-            let config = CaptureConfig::default();
-            capturer.start(&config)
-                .map_err(|e| Status::internal(format!("Failed to start capture: {}", e)))?;
-            
-            let raw_frame = capturer.get_raw_frame()
-                .map_err(|e| Status::internal(format!("Failed to get frame: {}", e)))?;
-            
-            capturer.stop()
-                .map_err(|e| Status::internal(format!("Failed to stop capture: {}", e)))?;
+            // CRITICAL FIX: Use spawn_blocking to avoid blocking the async runtime
+            // The scrot command is a synchronous blocking operation
+            let raw_frame = tokio::task::spawn_blocking(move || {
+                let mut capturer = LinuxCapturer::new()?;
+                let config = CaptureConfig::default();
+                capturer.start(&config)?;
+                let raw_frame = capturer.get_raw_frame()?;
+                capturer.stop()?;
+                Ok::<_, anyhow::Error>(raw_frame)
+            })
+            .await
+            .map_err(|e| Status::internal(format!("Task join error: {}", e)))?
+            .map_err(|e| Status::internal(format!("Failed to capture frame: {}", e)))?;
             
             info!("Captured frame: {}x{}, {} bytes", 
                 raw_frame.width, raw_frame.height, raw_frame.data.len());
