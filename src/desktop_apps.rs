@@ -254,6 +254,10 @@ pub async fn launch_with_gio(desktop_id: &str) -> Result<bool, Box<dyn std::erro
             .output()
     }).await??;
     
+    if !result.status.success() {
+        let stderr = String::from_utf8_lossy(&result.stderr);
+        tracing::debug!("gio launch failed: {}", stderr);
+    }
     Ok(result.status.success())
 }
 
@@ -268,6 +272,10 @@ pub async fn launch_with_gtk(desktop_id: &str) -> Result<bool, Box<dyn std::erro
             .output()
     }).await??;
     
+    if !result.status.success() {
+        let stderr = String::from_utf8_lossy(&result.stderr);
+        tracing::debug!("gtk-launch failed: {}", stderr);
+    }
     Ok(result.status.success())
 }
 
@@ -281,6 +289,10 @@ pub async fn launch_with_xdg(desktop_path: &Path) -> Result<bool, Box<dyn std::e
             .output()
     }).await??;
     
+    if !result.status.success() {
+        let stderr = String::from_utf8_lossy(&result.stderr);
+        tracing::debug!("xdg-open failed: {}", stderr);
+    }
     Ok(result.status.success())
 }
 
@@ -288,14 +300,21 @@ pub async fn launch_with_xdg(desktop_path: &Path) -> Result<bool, Box<dyn std::e
 pub async fn launch_direct_exec(exec_line: &str) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
     let cleaned = strip_field_codes(exec_line);
     
-    let result = task::spawn_blocking(move || {
+    match task::spawn_blocking(move || {
         Command::new("sh")
             .arg("-c")
             .arg(format!("nohup {} >/dev/null 2>&1 &", cleaned))
             .spawn()
-    }).await??;
-    
-    Ok(true)
+    }).await? {
+        Ok(_child) => {
+            tracing::debug!("Direct exec launched: {}", exec_line);
+            Ok(true)
+        }
+        Err(e) => {
+            tracing::debug!("Direct exec failed: {}", e);
+            Ok(false)
+        }
+    }
 }
 
 #[cfg(test)]
