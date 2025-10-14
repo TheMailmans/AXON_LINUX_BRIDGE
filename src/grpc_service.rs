@@ -828,9 +828,9 @@ impl DesktopAgent for DesktopAgentService {
             info!("🚀 [ROUND3] Will try launch methods with: id='{}', name='{}', exec='{}'", app_id, app_name, app_exec);
             
             // Try launch strategies in order of reliability
-            // 1. gio launch (best for GNOME)
-            info!("🔧 [ROUND3] METHOD 1: Trying gio launch with id='{}'", app_id);
-            match launch_with_gio(&app_id).await {
+            // 1. gio launch (best for GNOME) - needs FULL PATH to .desktop file!
+            info!("🔧 [ROUND3] METHOD 1: Trying gio launch with path='{}'", app_path_str);
+            match launch_with_gio(&app_path_str).await {
                 Ok(true) => {
                     info!("✅ [ROUND3] SUCCESS! Launched {} via gio launch", app_name);
                     info!("✅ [ROUND3] Returning success response to RPC caller");

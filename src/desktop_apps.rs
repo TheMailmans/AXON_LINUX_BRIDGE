@@ -246,16 +246,24 @@ impl DesktopApp {
 }
 
 /// Launch using `gio launch` (best for GNOME)
-pub async fn launch_with_gio(desktop_id: &str) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
-    tracing::info!("🔧 [ROUND6-GIO] Entering launch_with_gio() with id='{}'", desktop_id);
-    let id = desktop_id.to_string();
-    tracing::info!("🔧 [ROUND6-GIO] Spawning blocking task to run: gio launch {}", id);
+pub async fn launch_with_gio(desktop_path: &str) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
+    tracing::info!("🔧 [ROUND6-GIO] Entering launch_with_gio() with path='{}'", desktop_path);
+    
+    // gio launch needs the FULL PATH to .desktop file, not just the ID!
+    // If we don't have a path, fall through to next method
+    if desktop_path.is_empty() || !desktop_path.ends_with(".desktop") {
+        tracing::info!("❌ [ROUND6-GIO] No valid .desktop path, skipping gio launch");
+        return Ok(false);
+    }
+    
+    let path = desktop_path.to_string();
+    tracing::info!("🔧 [ROUND6-GIO] Spawning blocking task to run: gio launch {}", path);
     
     // Use spawn() instead of output() - don't wait for app to complete!
     let result = task::spawn_blocking(move || {
         tracing::info!("🔧 [ROUND6-GIO] Inside blocking task, spawning command (non-blocking)...");
         Command::new("gio")
-            .args(&["launch", &id])
+            .args(&["launch", &path])
             .spawn()  // spawn() returns immediately, output() waits!
     }).await?;
     
