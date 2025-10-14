@@ -1,4 +1,4 @@
-# 🚨 BRIDGE CRITICAL FIX - ROUND 4 (spawn_blocking Issue)
+# 🚨 BRIDGE CRITICAL FIX - ROUND 5 (spawn_blocking Issue)
 
 **Date:** 2025-10-14 01:40 UTC  
 **Priority:** HIGH - Blocking issue preventing RPC completion  
@@ -8,7 +8,7 @@
 
 ## 🎯 THE REAL PROBLEM (Finally!)
 
-After fixing the Hub timeout (Round 4), we discovered the **actual Bridge issue**:
+After fixing the Hub timeout (Round 5), we discovered the **actual Bridge issue**:
 
 **The Bridge RPC handler blocks on system commands and never returns the response!**
 
