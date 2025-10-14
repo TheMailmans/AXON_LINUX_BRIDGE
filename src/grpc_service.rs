@@ -445,7 +445,16 @@ impl DesktopAgent for DesktopAgentService {
         let req = request.into_inner();
         info!("inject_mouse_move: x={}, y={}", req.x, req.y);
         
-        match crate::input::inject_mouse_move(req.x, req.y) {
+        // CRITICAL FIX: Use spawn_blocking to avoid blocking the async runtime
+        // xdotool/Command is synchronous blocking I/O
+        let result = tokio::task::spawn_blocking(move || {
+            crate::input::inject_mouse_move(req.x, req.y)
+        })
+        .await
+        .map_err(|e| Status::internal(format!("Task join error: {}", e)))?
+        .map_err(|e| Status::internal(format!("Mouse move failed: {}", e)));
+        
+        match result {
             Ok(()) => {
                 info!("Mouse move successful");
                 Ok(Response::new(InputResponse {
@@ -476,7 +485,20 @@ impl DesktopAgent for DesktopAgentService {
         
         info!("inject_mouse_click: x={}, y={}, button={}", req.x, req.y, button);
         
-        match crate::input::inject_mouse_click(req.x, req.y, button) {
+        // CRITICAL FIX: Use spawn_blocking to avoid blocking the async runtime
+        // xdotool/Command is synchronous blocking I/O
+        let x = req.x;
+        let y = req.y;
+        let button_str = button.to_string();
+        
+        let result = tokio::task::spawn_blocking(move || {
+            crate::input::inject_mouse_click(x, y, &button_str)
+        })
+        .await
+        .map_err(|e| Status::internal(format!("Task join error: {}", e)))?
+        .map_err(|e| Status::internal(format!("Mouse click failed: {}", e)));
+        
+        match result {
             Ok(()) => {
                 info!("Mouse click successful");
                 Ok(Response::new(InputResponse {
@@ -501,7 +523,19 @@ impl DesktopAgent for DesktopAgentService {
         let req = request.into_inner();
         info!("inject_key_press: key={}, modifiers={:?}", req.key, req.modifiers);
         
-        match crate::input::inject_key_press(&req.key, &req.modifiers) {
+        // CRITICAL FIX: Use spawn_blocking to avoid blocking the async runtime
+        // xdotool/Command is synchronous blocking I/O
+        let key = req.key.clone();
+        let modifiers = req.modifiers.clone();
+        
+        let result = tokio::task::spawn_blocking(move || {
+            crate::input::inject_key_press(&key, &modifiers)
+        })
+        .await
+        .map_err(|e| Status::internal(format!("Task join error: {}", e)))?
+        .map_err(|e| Status::internal(format!("Key press failed: {}", e)));
+        
+        match result {
             Ok(()) => {
                 info!("Key press successful");
                 Ok(Response::new(InputResponse {
