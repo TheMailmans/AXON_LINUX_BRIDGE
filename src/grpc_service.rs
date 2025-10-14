@@ -796,13 +796,17 @@ impl DesktopAgent for DesktopAgentService {
         request: Request<LaunchApplicationRequest>,
     ) -> Result<Response<LaunchApplicationResponse>, Status> {
         let req = request.into_inner();
-        info!("🚀 LaunchApplication called: app_name={}", req.app_name);
+        info!("🚀 [ROUND3] LaunchApplication RPC ENTRY: app_name='{}'", req.app_name);
+        info!("🚀 [ROUND3] RPC handler starting at: {:?}", std::time::Instant::now());
         
         #[cfg(target_os = "linux")]
         {
+            info!("🚀 [ROUND3] Linux platform detected, using FreeDesktop.org launcher");
             // Universal application launcher using FreeDesktop.org standards
             // Get read lock on app index
+            info!("🚀 [ROUND3] Acquiring AppIndex read lock...");
             let index = self.app_index.read().await;
+            info!("🚀 [ROUND3] AppIndex lock acquired, searching for '{}'", req.app_name);
             
             // Find matching app via fuzzy search
             let app_opt = index.find_app(&req.app_name);
@@ -810,57 +814,105 @@ impl DesktopAgent for DesktopAgentService {
             // If found in AppIndex, use those details; otherwise use the raw app name
             let (app_id, app_name, app_path_str, app_exec) = if let Some(app) = app_opt {
                 let app = app.clone();
-                info!("🎯 Matched '{}' to '{}' ({})", req.app_name, app.name, app.id);
+                info!("🎯 [ROUND3] APPINDEX HIT! Matched '{}' to '{}' ({})", req.app_name, app.name, app.id);
+                info!("🎯 [ROUND3] App details: id='{}', name='{}', exec='{}', path='{}'", 
+                      app.id, app.name, app.exec, app.path.display());
                 let path_str = app.path.to_string_lossy().to_string();
                 (app.id.clone(), app.name.clone(), path_str, app.exec.clone())
             } else {
-                info!("⚠️  No AppIndex match for '{}', trying fallback methods with raw name", req.app_name);
+                info!("⚠️  [ROUND3] APPINDEX MISS! No match for '{}', using raw name for fallbacks", req.app_name);
                 // Use the raw app name for all methods
                 (req.app_name.clone(), req.app_name.clone(), String::new(), req.app_name.clone())
             };
             
+            info!("🚀 [ROUND3] Will try launch methods with: id='{}', name='{}', exec='{}'", app_id, app_name, app_exec);
+            
             // Try launch strategies in order of reliability
             // 1. gio launch (best for GNOME)
-            if launch_with_gio(&app_id).await.unwrap_or(false) {
-                info!("✅ Launched {} via gio", app_name);
-                return Ok(Response::new(LaunchApplicationResponse {
-                    success: true,
-                    error: String::new(),
-                }));
-            }
-            
-            // 2. gtk-launch (GTK fallback)
-            if launch_with_gtk(&app_id).await.unwrap_or(false) {
-                info!("✅ Launched {} via gtk-launch", app_name);
-                return Ok(Response::new(LaunchApplicationResponse {
-                    success: true,
-                    error: String::new(),
-                }));
-            }
-            
-            // 3. xdg-open (cross-desktop fallback)
-            if !app_path_str.is_empty() {
-                if launch_with_xdg(std::path::Path::new(&app_path_str)).await.unwrap_or(false) {
-                    info!("✅ Launched {} via xdg-open", app_name);
+            info!("🔧 [ROUND3] METHOD 1: Trying gio launch with id='{}'", app_id);
+            match launch_with_gio(&app_id).await {
+                Ok(true) => {
+                    info!("✅ [ROUND3] SUCCESS! Launched {} via gio launch", app_name);
+                    info!("✅ [ROUND3] Returning success response to RPC caller");
                     return Ok(Response::new(LaunchApplicationResponse {
                         success: true,
                         error: String::new(),
                     }));
                 }
+                Ok(false) => {
+                    info!("❌ [ROUND3] gio launch returned false (command failed)");
+                }
+                Err(e) => {
+                    info!("❌ [ROUND3] gio launch errored: {:?}", e);
+                }
+            }
+            
+            // 2. gtk-launch (GTK fallback)
+            info!("🔧 [ROUND3] METHOD 2: Trying gtk-launch with id='{}'", app_id);
+            match launch_with_gtk(&app_id).await {
+                Ok(true) => {
+                    info!("✅ [ROUND3] SUCCESS! Launched {} via gtk-launch", app_name);
+                    info!("✅ [ROUND3] Returning success response to RPC caller");
+                    return Ok(Response::new(LaunchApplicationResponse {
+                        success: true,
+                        error: String::new(),
+                    }));
+                }
+                Ok(false) => {
+                    info!("❌ [ROUND3] gtk-launch returned false (command failed)");
+                }
+                Err(e) => {
+                    info!("❌ [ROUND3] gtk-launch errored: {:?}", e);
+                }
+            }
+            
+            // 3. xdg-open (cross-desktop fallback)
+            if !app_path_str.is_empty() {
+                info!("🔧 [ROUND3] METHOD 3: Trying xdg-open with path='{}'", app_path_str);
+                match launch_with_xdg(std::path::Path::new(&app_path_str)).await {
+                    Ok(true) => {
+                        info!("✅ [ROUND3] SUCCESS! Launched {} via xdg-open", app_name);
+                        info!("✅ [ROUND3] Returning success response to RPC caller");
+                        return Ok(Response::new(LaunchApplicationResponse {
+                            success: true,
+                            error: String::new(),
+                        }));
+                    }
+                    Ok(false) => {
+                        info!("❌ [ROUND3] xdg-open returned false (command failed)");
+                    }
+                    Err(e) => {
+                        info!("❌ [ROUND3] xdg-open errored: {:?}", e);
+                    }
+                }
+            } else {
+                info!("⏭️  [ROUND3] METHOD 3: Skipping xdg-open (no .desktop path available)");
             }
             
             // 4. Direct exec (last resort)
-            if launch_direct_exec(&app_exec).await.unwrap_or(false) {
-                info!("✅ Launched {} via direct exec", app_name);
-                return Ok(Response::new(LaunchApplicationResponse {
-                    success: true,
-                    error: String::new(),
-                }));
+            info!("🔧 [ROUND3] METHOD 4: Trying direct exec with command='{}'", app_exec);
+            match launch_direct_exec(&app_exec).await {
+                Ok(true) => {
+                    info!("✅ [ROUND3] SUCCESS! Launched {} via direct exec", app_name);
+                    info!("✅ [ROUND3] Returning success response to RPC caller");
+                    return Ok(Response::new(LaunchApplicationResponse {
+                        success: true,
+                        error: String::new(),
+                    }));
+                }
+                Ok(false) => {
+                    info!("❌ [ROUND3] direct exec returned false (spawn failed)");
+                }
+                Err(e) => {
+                    info!("❌ [ROUND3] direct exec errored: {:?}", e);
+                }
             }
             
             // All strategies failed
             let err = format!("❌ All launch strategies failed for: {}", app_name);
-            error!("{}", err);
+            error!("❌ [ROUND3] ALL 4 METHODS FAILED! Returning error response");
+            error!("❌ [ROUND3] Error message: {}", err);
+            info!("❌ [ROUND3] RPC EXIT with success=false");
             Ok(Response::new(LaunchApplicationResponse {
                 success: false,
                 error: err,
