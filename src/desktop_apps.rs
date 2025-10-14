@@ -247,84 +247,82 @@ impl DesktopApp {
 
 /// Launch using `gio launch` (best for GNOME)
 pub async fn launch_with_gio(desktop_id: &str) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
-    tracing::info!("🔧 [ROUND3-GIO] Entering launch_with_gio() with id='{}'", desktop_id);
+    tracing::info!("🔧 [ROUND6-GIO] Entering launch_with_gio() with id='{}'", desktop_id);
     let id = desktop_id.to_string();
-    tracing::info!("🔧 [ROUND3-GIO] Spawning blocking task to run: gio launch {}", id);
+    tracing::info!("🔧 [ROUND6-GIO] Spawning blocking task to run: gio launch {}", id);
+    
+    // Use spawn() instead of output() - don't wait for app to complete!
     let result = task::spawn_blocking(move || {
-        tracing::info!("🔧 [ROUND3-GIO] Inside blocking task, executing command...");
+        tracing::info!("🔧 [ROUND6-GIO] Inside blocking task, spawning command (non-blocking)...");
         Command::new("gio")
             .args(&["launch", &id])
-            .output()
-    }).await??;
+            .spawn()  // spawn() returns immediately, output() waits!
+    }).await?;
     
-    tracing::info!("🔧 [ROUND3-GIO] Command completed, exit status: {:?}", result.status);
-    if !result.status.success() {
-        let stderr = String::from_utf8_lossy(&result.stderr);
-        let stdout = String::from_utf8_lossy(&result.stdout);
-        tracing::info!("❌ [ROUND3-GIO] FAILED! Exit code: {:?}", result.status.code());
-        tracing::info!("❌ [ROUND3-GIO] stderr: '{}'", stderr);
-        tracing::info!("❌ [ROUND3-GIO] stdout: '{}'", stdout);
-        tracing::info!("❌ [ROUND3-GIO] Returning Ok(false)");
-    } else {
-        tracing::info!("✅ [ROUND3-GIO] SUCCESS! Command succeeded, returning Ok(true)");
+    match result {
+        Ok(_child) => {
+            tracing::info!("✅ [ROUND6-GIO] SUCCESS! Command spawned successfully");
+            Ok(true)
+        }
+        Err(e) => {
+            tracing::info!("❌ [ROUND6-GIO] FAILED! Spawn error: {:?}", e);
+            Ok(false)
+        }
     }
-    Ok(result.status.success())
 }
 
 /// Launch using `gtk-launch` (GTK fallback)
 pub async fn launch_with_gtk(desktop_id: &str) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
-    tracing::info!("🔧 [ROUND3-GTK] Entering launch_with_gtk() with id='{}'", desktop_id);
+    tracing::info!("🔧 [ROUND6-GTK] Entering launch_with_gtk() with id='{}'", desktop_id);
     // Strip .desktop suffix for gtk-launch
     let id = desktop_id.strip_suffix(".desktop").unwrap_or(desktop_id).to_string();
-    tracing::info!("🔧 [ROUND3-GTK] Stripped id: '{}'", id);
-    tracing::info!("🔧 [ROUND3-GTK] Spawning blocking task to run: gtk-launch {}", id);
+    tracing::info!("🔧 [ROUND6-GTK] Stripped id: '{}'", id);
+    tracing::info!("🔧 [ROUND6-GTK] Spawning blocking task to run: gtk-launch {}", id);
     
+    // Use spawn() instead of output() - don't wait for app to complete!
     let result = task::spawn_blocking(move || {
-        tracing::info!("🔧 [ROUND3-GTK] Inside blocking task, executing command...");
+        tracing::info!("🔧 [ROUND6-GTK] Inside blocking task, spawning command (non-blocking)...");
         Command::new("gtk-launch")
             .arg(&id)
-            .output()
-    }).await??;
+            .spawn()  // spawn() returns immediately, output() waits 30s!
+    }).await?;
     
-    tracing::info!("🔧 [ROUND3-GTK] Command completed, exit status: {:?}", result.status);
-    if !result.status.success() {
-        let stderr = String::from_utf8_lossy(&result.stderr);
-        let stdout = String::from_utf8_lossy(&result.stdout);
-        tracing::info!("❌ [ROUND3-GTK] FAILED! Exit code: {:?}", result.status.code());
-        tracing::info!("❌ [ROUND3-GTK] stderr: '{}'", stderr);
-        tracing::info!("❌ [ROUND3-GTK] stdout: '{}'", stdout);
-        tracing::info!("❌ [ROUND3-GTK] Returning Ok(false)");
-    } else {
-        tracing::info!("✅ [ROUND3-GTK] SUCCESS! Command succeeded, returning Ok(true)");
+    match result {
+        Ok(_child) => {
+            tracing::info!("✅ [ROUND6-GTK] SUCCESS! Command spawned successfully");
+            Ok(true)
+        }
+        Err(e) => {
+            tracing::info!("❌ [ROUND6-GTK] FAILED! Spawn error: {:?}", e);
+            Ok(false)
+        }
     }
-    Ok(result.status.success())
 }
 
 /// Launch using `xdg-open` (cross-desktop fallback)
 pub async fn launch_with_xdg(desktop_path: &Path) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
-    tracing::info!("🔧 [ROUND3-XDG] Entering launch_with_xdg() with path='{}'", desktop_path.display());
+    tracing::info!("🔧 [ROUND6-XDG] Entering launch_with_xdg() with path='{}'", desktop_path.display());
     let path_str = desktop_path.to_string_lossy().to_string();
-    tracing::info!("🔧 [ROUND3-XDG] Spawning blocking task to run: xdg-open {}", path_str);
+    tracing::info!("🔧 [ROUND6-XDG] Spawning blocking task to run: xdg-open {}", path_str);
     
+    // Use spawn() instead of output() - don't wait for app to complete!
     let result = task::spawn_blocking(move || {
-        tracing::info!("🔧 [ROUND3-XDG] Inside blocking task, executing command...");
+        tracing::info!("🔧 [ROUND6-XDG] Inside blocking task, spawning command (non-blocking)...");
         Command::new("xdg-open")
             .arg(&path_str)
-            .output()
-    }).await??;
+            .spawn()  // spawn() returns immediately, output() waits!
+    }).await?;
     
-    tracing::info!("🔧 [ROUND3-XDG] Command completed, exit status: {:?}", result.status);
-    if !result.status.success() {
-        let stderr = String::from_utf8_lossy(&result.stderr);
-        let stdout = String::from_utf8_lossy(&result.stdout);
-        tracing::info!("❌ [ROUND3-XDG] FAILED! Exit code: {:?}", result.status.code());
-        tracing::info!("❌ [ROUND3-XDG] stderr: '{}'", stderr);
-        tracing::info!("❌ [ROUND3-XDG] stdout: '{}'", stdout);
-        tracing::info!("❌ [ROUND3-XDG] Returning Ok(false)");
-    } else {
-        tracing::info!("✅ [ROUND3-XDG] SUCCESS! Command succeeded, returning Ok(true)");
+    match result {
+        Ok(_child) => {
+            tracing::info!("✅ [ROUND6-XDG] SUCCESS! Command spawned successfully");
+            Ok(true)
+        }
+        Err(e) => {
+            tracing::info!("❌ [ROUND6-XDG] FAILED! Spawn error: {:?}", e);
+            Ok(false)
+        }
     }
-    Ok(result.status.success())
 }
 
 /// Launch by parsing Exec directly (last resort)
