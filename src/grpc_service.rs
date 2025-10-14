@@ -460,6 +460,7 @@ impl DesktopAgent for DesktopAgentService {
                 Ok(Response::new(InputResponse {
                     success: true,
                     error: None,
+                    error_code: None,
                 }))
             }
             Err(e) => {
@@ -467,6 +468,7 @@ impl DesktopAgent for DesktopAgentService {
                 Ok(Response::new(InputResponse {
                     success: false,
                     error: Some(e.to_string()),
+                    error_code: None,
                 }))
             }
         }
@@ -504,6 +506,7 @@ impl DesktopAgent for DesktopAgentService {
                 Ok(Response::new(InputResponse {
                     success: true,
                     error: None,
+                    error_code: None,
                 }))
             }
             Err(e) => {
@@ -511,6 +514,7 @@ impl DesktopAgent for DesktopAgentService {
                 Ok(Response::new(InputResponse {
                     success: false,
                     error: Some(e.to_string()),
+                    error_code: None,
                 }))
             }
         }
@@ -541,6 +545,7 @@ impl DesktopAgent for DesktopAgentService {
                 Ok(Response::new(InputResponse {
                     success: true,
                     error: None,
+                    error_code: None,
                 }))
             }
             Err(e) => {
@@ -548,9 +553,240 @@ impl DesktopAgent for DesktopAgentService {
                 Ok(Response::new(InputResponse {
                     success: false,
                     error: Some(e.to_string()),
+                    error_code: None,
                 }))
             }
         }
+    }
+    
+    async fn inject_mouse_down(
+        &self,
+        request: Request<MouseClickRequest>,
+    ) -> Result<Response<InputResponse>, Status> {
+        let req = request.into_inner();
+        let button = match req.button() {
+            crate::proto_gen::agent::MouseButton::Left => "left",
+            crate::proto_gen::agent::MouseButton::Right => "right",
+            crate::proto_gen::agent::MouseButton::Middle => "middle",
+        };
+        
+        info!("inject_mouse_down: x={}, y={}, button={}", req.x, req.y, button);
+        
+        let x = req.x;
+        let y = req.y;
+        let button_str = button.to_string();
+        
+        let result = tokio::task::spawn_blocking(move || {
+            crate::input::inject_mouse_press(x, y, &button_str)
+        })
+        .await
+        .map_err(|e| Status::internal(format!("Task join error: {}", e)))?
+        .map_err(|e| Status::internal(format!("Mouse press failed: {}", e)));
+        
+        match result {
+            Ok(()) => {
+                info!("Mouse press successful");
+                Ok(Response::new(InputResponse {
+                    success: true,
+                    error: None,
+                    error_code: None,
+                }))
+            }
+            Err(e) => {
+                error!("Mouse press failed: {}", e);
+                Ok(Response::new(InputResponse {
+                    success: false,
+                    error: Some(e.to_string()),
+                    error_code: None,
+                }))
+            }
+        }
+    }
+    
+    async fn inject_mouse_up(
+        &self,
+        request: Request<MouseClickRequest>,
+    ) -> Result<Response<InputResponse>, Status> {
+        let req = request.into_inner();
+        let button = match req.button() {
+            crate::proto_gen::agent::MouseButton::Left => "left",
+            crate::proto_gen::agent::MouseButton::Right => "right",
+            crate::proto_gen::agent::MouseButton::Middle => "middle",
+        };
+        
+        info!("inject_mouse_up: x={}, y={}, button={}", req.x, req.y, button);
+        
+        let x = req.x;
+        let y = req.y;
+        let button_str = button.to_string();
+        
+        let result = tokio::task::spawn_blocking(move || {
+            crate::input::inject_mouse_release(x, y, &button_str)
+        })
+        .await
+        .map_err(|e| Status::internal(format!("Task join error: {}", e)))?
+        .map_err(|e| Status::internal(format!("Mouse release failed: {}", e)));
+        
+        match result {
+            Ok(()) => {
+                info!("Mouse release successful");
+                Ok(Response::new(InputResponse {
+                    success: true,
+                    error: None,
+                    error_code: None,
+                }))
+            }
+            Err(e) => {
+                error!("Mouse release failed: {}", e);
+                Ok(Response::new(InputResponse {
+                    success: false,
+                    error: Some(e.to_string()),
+                    error_code: None,
+                }))
+            }
+        }
+    }
+    
+    async fn inject_scroll(
+        &self,
+        request: Request<ScrollRequest>,
+    ) -> Result<Response<InputResponse>, Status> {
+        let req = request.into_inner();
+        info!("inject_scroll: x={}, y={}, dx={}, dy={}", req.x, req.y, req.delta_x, req.delta_y);
+        
+        let x = req.x;
+        let y = req.y;
+        let delta_x = req.delta_x;
+        let delta_y = req.delta_y;
+        
+        let result = tokio::task::spawn_blocking(move || {
+            crate::input::inject_scroll(x, y, delta_x, delta_y)
+        })
+        .await
+        .map_err(|e| Status::internal(format!("Task join error: {}", e)))?
+        .map_err(|e| Status::internal(format!("Scroll failed: {}", e)));
+        
+        match result {
+            Ok(()) => {
+                info!("Scroll successful");
+                Ok(Response::new(InputResponse {
+                    success: true,
+                    error: None,
+                    error_code: None,
+                }))
+            }
+            Err(e) => {
+                error!("Scroll failed: {}", e);
+                Ok(Response::new(InputResponse {
+                    success: false,
+                    error: Some(e.to_string()),
+                    error_code: None,
+                }))
+            }
+        }
+    }
+    
+    async fn type_text(
+        &self,
+        request: Request<TypeTextRequest>,
+    ) -> Result<Response<InputResponse>, Status> {
+        let req = request.into_inner();
+        let delay_ms = req.delay_ms.unwrap_or(12);
+        info!("type_text: {} chars, delay={}ms", req.text.len(), delay_ms);
+        
+        let text = req.text.clone();
+        
+        let result = tokio::task::spawn_blocking(move || {
+            crate::input::type_string_with_delay(&text, delay_ms)
+        })
+        .await
+        .map_err(|e| Status::internal(format!("Task join error: {}", e)))?
+        .map_err(|e| Status::internal(format!("Type text failed: {}", e)));
+        
+        match result {
+            Ok(()) => {
+                info!("Type text successful");
+                Ok(Response::new(InputResponse {
+                    success: true,
+                    error: None,
+                    error_code: None,
+                }))
+            }
+            Err(e) => {
+                error!("Type text failed: {}", e);
+                Ok(Response::new(InputResponse {
+                    success: false,
+                    error: Some(e.to_string()),
+                    error_code: None,
+                }))
+            }
+        }
+    }
+    
+    async fn get_capabilities(
+        &self,
+        _request: Request<CapabilitiesRequest>,
+    ) -> Result<Response<CapabilitiesResponse>, Status> {
+        info!("get_capabilities called");
+        
+        let capabilities = tokio::task::spawn_blocking(|| {
+            crate::input::get_capabilities()
+        })
+        .await
+        .map_err(|e| Status::internal(format!("Task join error: {}", e)))?;
+        
+        let mut features = vec![
+            "mouse_move".to_string(),
+            "mouse_click".to_string(),
+            "key_press".to_string(),
+            "type_text".to_string(),
+        ];
+        
+        if capabilities.supports_press_release {
+            features.push("mouse_press_release".to_string());
+        }
+        if capabilities.supports_scroll {
+            features.push("scroll".to_string());
+        }
+        if capabilities.supports_a11y {
+            features.push("accessibility".to_string());
+        }
+        
+        Ok(Response::new(CapabilitiesResponse {
+            display_server: capabilities.display_server,
+            input_method: capabilities.input_method,
+            capture_method: capabilities.capture_method,
+            supports_wayland: capabilities.supports_wayland,
+            supports_x11: capabilities.supports_x11,
+            supports_press_release: capabilities.supports_press_release,
+            supports_scroll: capabilities.supports_scroll,
+            supports_a11y: capabilities.supports_a11y,
+            available_features: features,
+        }))
+    }
+    
+    async fn get_active_window(
+        &self,
+        _request: Request<GetActiveWindowRequest>,
+    ) -> Result<Response<GetActiveWindowResponse>, Status> {
+        info!("get_active_window called");
+        
+        let window_info = tokio::task::spawn_blocking(|| {
+            crate::input::get_active_window()
+        })
+        .await
+        .map_err(|e| Status::internal(format!("Task join error: {}", e)))?
+        .map_err(|e| Status::internal(format!("Get active window failed: {}", e)))?;
+        
+        Ok(Response::new(GetActiveWindowResponse {
+            window_id: window_info.window_id,
+            window_title: window_info.title,
+            app_name: window_info.app_name,
+            x: window_info.x,
+            y: window_info.y,
+            width: window_info.width,
+            height: window_info.height,
+        }))
     }
     
     async fn get_system_info(

@@ -21,7 +21,12 @@ pub use mouse::{inject_mouse_move, inject_mouse_click};
 pub mod linux;
 
 #[cfg(target_os = "linux")]
-pub use linux::{inject_key_press, type_string, inject_mouse_move, inject_mouse_click};
+pub use linux::{
+    inject_key_press, type_string, type_string_with_delay,
+    inject_mouse_move, inject_mouse_click, inject_mouse_click_with_options,
+    inject_mouse_press, inject_mouse_release, inject_scroll,
+    get_active_window, get_capabilities, WindowInfo, Capabilities,
+};
 
 // Windows stub (not implemented yet)
 #[cfg(target_os = "windows")]

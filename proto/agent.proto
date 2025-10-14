@@ -24,10 +24,16 @@ service DesktopAgent {
   // Input injection
   rpc InjectMouseMove(MouseMoveRequest) returns (InputResponse);
   rpc InjectMouseClick(MouseClickRequest) returns (InputResponse);
+  rpc InjectMouseDown(MouseClickRequest) returns (InputResponse);
+  rpc InjectMouseUp(MouseClickRequest) returns (InputResponse);
+  rpc InjectScroll(ScrollRequest) returns (InputResponse);
   rpc InjectKeyPress(KeyPressRequest) returns (InputResponse);
+  rpc TypeText(TypeTextRequest) returns (InputResponse);
   
   // System info
   rpc GetSystemInfo(SystemInfoRequest) returns (SystemInfoResponse);
+  rpc GetCapabilities(CapabilitiesRequest) returns (CapabilitiesResponse);
+  rpc GetActiveWindow(GetActiveWindowRequest) returns (GetActiveWindowResponse);
   
   // OSWorld evaluator support - system state queries
   rpc GetWindowList(GetWindowListRequest) returns (GetWindowListResponse);
@@ -187,9 +193,24 @@ message KeyPressRequest {
   repeated string modifiers = 3;
 }
 
+message TypeTextRequest {
+  string agent_id = 1;
+  string text = 2;
+  optional int32 delay_ms = 3; // Delay between characters (default: 12ms)
+}
+
+message ScrollRequest {
+  string agent_id = 1;
+  int32 x = 2;  // Mouse position x
+  int32 y = 3;  // Mouse position y
+  int32 delta_x = 4;  // Horizontal scroll amount
+  int32 delta_y = 5;  // Vertical scroll amount
+}
+
 message InputResponse {
   bool success = 1;
   optional string error = 2;
+  optional string error_code = 3; // Structured error code (e.g., "NO_FOCUS", "WINDOW_NOT_FOUND")
 }
 
 // System info
@@ -199,6 +220,36 @@ message SystemInfoRequest {
 
 message SystemInfoResponse {
   SystemInfo info = 1;
+}
+
+message CapabilitiesRequest {
+  string agent_id = 1;
+}
+
+message CapabilitiesResponse {
+  string display_server = 1;  // "x11", "wayland", "windows", "macos"
+  string input_method = 2;    // "xdotool", "ydotool", "coreevents", etc.
+  string capture_method = 3;  // "scrot", "pipewire", "screencapture", etc.
+  bool supports_wayland = 4;
+  bool supports_x11 = 5;
+  bool supports_press_release = 6;
+  bool supports_scroll = 7;
+  bool supports_a11y = 8;
+  repeated string available_features = 9;
+}
+
+message GetActiveWindowRequest {
+  string agent_id = 1;
+}
+
+message GetActiveWindowResponse {
+  string window_id = 1;
+  string window_title = 2;
+  string app_name = 3;
+  int32 x = 4;
+  int32 y = 5;
+  int32 width = 6;
+  int32 height = 7;
 }
 
 message SystemInfo {
