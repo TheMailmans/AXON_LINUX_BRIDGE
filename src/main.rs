@@ -5,7 +5,7 @@ use tracing_subscriber;
 mod agent;
 mod audio;
 mod capture;
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 mod desktop_apps;
 mod grpc_service;
 mod input;
@@ -14,9 +14,6 @@ mod proto_gen;
 mod streaming;
 mod video;
 mod a11y;
-
-#[cfg(any(target_os = "linux", target_os = "macos"))]
-mod desktop_apps;
 
 use agent::Agent;
 use grpc_service::DesktopAgentService;

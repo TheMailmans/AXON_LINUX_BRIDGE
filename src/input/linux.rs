@@ -87,7 +87,7 @@ pub fn inject_mouse_move(x: i32, y: i32) -> Result<()> {
     
     let output = Command::new("xdotool")
         .arg("mousemove")
-        .arg("--sync")  // Wait for move to complete
+        // Note: --sync flag removed as it causes 10-15 second hangs with some WMs
         .arg(x.to_string())
         .arg(y.to_string())
         .output()?;

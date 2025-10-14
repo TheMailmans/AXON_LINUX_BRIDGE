@@ -805,24 +805,24 @@ impl DesktopAgent for DesktopAgentService {
             let index = self.app_index.read().await;
             
             // Find matching app via fuzzy search
-            let app = match index.find_app(&req.app_name) {
-                Some(app) => app.clone(),
-                None => {
-                    let err = format!("❌ No matching application found for: {}", req.app_name);
-                    error!("{}", err);
-                    return Ok(Response::new(LaunchApplicationResponse {
-                        success: false,
-                        error: err,
-                    }));
-                }
-            };
+            let app_opt = index.find_app(&req.app_name);
             
-            info!("🎯 Matched '{}' to '{}' ({})", req.app_name, app.name, app.id);
+            // If found in AppIndex, use those details; otherwise use the raw app name
+            let (app_id, app_name, app_path_str, app_exec) = if let Some(app) = app_opt {
+                let app = app.clone();
+                info!("🎯 Matched '{}' to '{}' ({})", req.app_name, app.name, app.id);
+                let path_str = app.path.to_string_lossy().to_string();
+                (app.id.clone(), app.name.clone(), path_str, app.exec.clone())
+            } else {
+                info!("⚠️  No AppIndex match for '{}', trying fallback methods with raw name", req.app_name);
+                // Use the raw app name for all methods
+                (req.app_name.clone(), req.app_name.clone(), String::new(), req.app_name.clone())
+            };
             
             // Try launch strategies in order of reliability
             // 1. gio launch (best for GNOME)
-            if launch_with_gio(&app.id).await.unwrap_or(false) {
-                info!("✅ Launched {} via gio", app.name);
+            if launch_with_gio(&app_id).await.unwrap_or(false) {
+                info!("✅ Launched {} via gio", app_name);
                 return Ok(Response::new(LaunchApplicationResponse {
                     success: true,
                     error: String::new(),
@@ -830,8 +830,8 @@ impl DesktopAgent for DesktopAgentService {
             }
             
             // 2. gtk-launch (GTK fallback)
-            if launch_with_gtk(&app.id).await.unwrap_or(false) {
-                info!("✅ Launched {} via gtk-launch", app.name);
+            if launch_with_gtk(&app_id).await.unwrap_or(false) {
+                info!("✅ Launched {} via gtk-launch", app_name);
                 return Ok(Response::new(LaunchApplicationResponse {
                     success: true,
                     error: String::new(),
@@ -839,17 +839,19 @@ impl DesktopAgent for DesktopAgentService {
             }
             
             // 3. xdg-open (cross-desktop fallback)
-            if launch_with_xdg(&app.path).await.unwrap_or(false) {
-                info!("✅ Launched {} via xdg-open", app.name);
-                return Ok(Response::new(LaunchApplicationResponse {
-                    success: true,
-                    error: String::new(),
-                }));
+            if !app_path_str.is_empty() {
+                if launch_with_xdg(std::path::Path::new(&app_path_str)).await.unwrap_or(false) {
+                    info!("✅ Launched {} via xdg-open", app_name);
+                    return Ok(Response::new(LaunchApplicationResponse {
+                        success: true,
+                        error: String::new(),
+                    }));
+                }
             }
             
             // 4. Direct exec (last resort)
-            if launch_direct_exec(&app.exec).await.unwrap_or(false) {
-                info!("✅ Launched {} via direct exec", app.name);
+            if launch_direct_exec(&app_exec).await.unwrap_or(false) {
+                info!("✅ Launched {} via direct exec", app_name);
                 return Ok(Response::new(LaunchApplicationResponse {
                     success: true,
                     error: String::new(),
@@ -857,7 +859,7 @@ impl DesktopAgent for DesktopAgentService {
             }
             
             // All strategies failed
-            let err = format!("❌ All launch strategies failed for: {}", app.name);
+            let err = format!("❌ All launch strategies failed for: {}", app_name);
             error!("{}", err);
             Ok(Response::new(LaunchApplicationResponse {
                 success: false,
@@ -942,19 +944,14 @@ impl DesktopAgent for DesktopAgentService {
             } else {
                 // Input looks like an app name - try AppIndex lookup
                 info!("Input '{}' detected as app name, looking up in AppIndex", req.app_name);
-                let app_index = crate::desktop_apps::AppIndex::new().await;
-                if let Ok(apps) = app_index {
-                    if let Some(app) = apps.find(&req.app_name) {
-                        let binary = app.get_binary_name();
-                        info!("Found app '{}' in AppIndex, binary: {}", req.app_name, binary);
-                        binary
-                    } else {
-                        // Fallback: use provided name as-is
-                        info!("App '{}' not in AppIndex, using name as-is", req.app_name);
-                        req.app_name.clone()
-                    }
+                let app_index = crate::desktop_apps::AppIndex::new();
+                if let Some(app) = app_index.find_app(&req.app_name) {
+                    let binary = app.get_binary_name();
+                    info!("Found app '{}' in AppIndex, binary: {}", req.app_name, binary);
+                    binary
                 } else {
                     // Fallback: use provided name as-is
+                    info!("App '{}' not in AppIndex, using name as-is", req.app_name);
                     req.app_name.clone()
                 }
             };
