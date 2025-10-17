@@ -21,6 +21,7 @@ pub mod batch;
 pub mod clipboard;
 pub mod rate_limit;
 pub mod cancellation;
+pub mod parallel_batch;
 
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 pub mod desktop_apps;
