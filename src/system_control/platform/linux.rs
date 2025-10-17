@@ -301,6 +301,75 @@ pub fn has_xbacklight() -> bool {
         .unwrap_or(false)
 }
 
+// === MEDIA CONTROL ===
+
+/// Execute media action using playerctl
+pub fn execute_media_action_playerctl(action: super::super::MediaAction) -> Result<()> {
+    use super::super::MediaAction;
+    
+    let cmd = match action {
+        MediaAction::Play => "play",
+        MediaAction::Pause => "pause",
+        MediaAction::PlayPause => "play-pause",
+        MediaAction::Next => "next",
+        MediaAction::Previous => "previous",
+        MediaAction::Stop => "stop",
+    };
+
+    debug!("Executing media action via playerctl: {}", cmd);
+
+    let output = Command::new("playerctl")
+        .arg(cmd)
+        .output()
+        .context("Failed to execute playerctl")?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        bail!("playerctl {} failed: {}", cmd, stderr);
+    }
+
+    info!("Media action executed via playerctl: {}", cmd);
+    Ok(())
+}
+
+/// Execute media action using keyboard simulation
+pub fn execute_media_action_keyboard_linux(action: super::super::MediaAction) -> Result<()> {
+    use super::super::MediaAction;
+    
+    let key = match action {
+        MediaAction::Play => "XF86AudioPlay",
+        MediaAction::Pause => "XF86AudioPause",
+        MediaAction::PlayPause => "XF86AudioPlay",
+        MediaAction::Next => "XF86AudioNext",
+        MediaAction::Previous => "XF86AudioPrev",
+        MediaAction::Stop => "XF86AudioStop",
+    };
+
+    debug!("Executing media action via xdotool key: {}", key);
+
+    let output = Command::new("xdotool")
+        .args(&["key", key])
+        .output()
+        .context("Failed to execute xdotool")?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        bail!("xdotool key {} failed: {}", key, stderr);
+    }
+
+    info!("Media action executed via keyboard: {}", key);
+    Ok(())
+}
+
+/// Check if playerctl is available
+pub fn has_playerctl() -> bool {
+    Command::new("which")
+        .arg("playerctl")
+        .output()
+        .map(|output| output.status.success())
+        .unwrap_or(false)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

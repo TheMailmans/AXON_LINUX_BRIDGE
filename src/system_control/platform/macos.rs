@@ -149,6 +149,66 @@ pub fn set_brightness_via_osascript(level: f32) -> Result<()> {
     Ok(())
 }
 
+// === MEDIA CONTROL ===
+
+/// Execute media action using osascript
+pub fn execute_media_action_osascript(action: super::super::MediaAction) -> Result<()> {
+    use super::super::MediaAction;
+    
+    let script = match action {
+        MediaAction::Play => "tell application \"Music\" to play",
+        MediaAction::Pause => "tell application \"Music\" to pause",
+        MediaAction::PlayPause => "tell application \"Music\" to playpause",
+        MediaAction::Next => "tell application \"Music\" to next track",
+        MediaAction::Previous => "tell application \"Music\" to previous track",
+        MediaAction::Stop => "tell application \"Music\" to stop",
+    };
+
+    debug!("Executing media action via osascript: {}", action);
+
+    let output = Command::new("osascript")
+        .args(&["-e", script])
+        .output()
+        .context("Failed to execute osascript for media")?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        bail!("osascript media action failed: {}", stderr);
+    }
+
+    info!("Media action executed via osascript: {}", action);
+    Ok(())
+}
+
+/// Execute media action using keyboard simulation
+pub fn execute_media_action_keyboard_macos(action: super::super::MediaAction) -> Result<()> {
+    use super::super::MediaAction;
+    
+    let script = match action {
+        MediaAction::Play => "tell application \"System Events\" to key code 104",
+        MediaAction::Pause => "tell application \"System Events\" to key code 113", 
+        MediaAction::PlayPause => "tell application \"System Events\" to key code 104",
+        MediaAction::Next => "tell application \"System Events\" to key code 124",
+        MediaAction::Previous => "tell application \"System Events\" to key code 123",
+        MediaAction::Stop => "tell application \"System Events\" to key code 101",
+    };
+
+    debug!("Executing media action via keyboard: {}", action);
+
+    let output = Command::new("osascript")
+        .args(&["-e", script])
+        .output()
+        .context("Failed to execute keyboard media action")?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        bail!("Keyboard media action failed: {}", stderr);
+    }
+
+    info!("Media action executed via keyboard: {}", action);
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

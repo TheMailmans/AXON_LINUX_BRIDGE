@@ -198,6 +198,58 @@ pub fn set_brightness_via_windows(level: f32) -> Result<()> {
     Ok(())
 }
 
+// === MEDIA CONTROL ===
+
+/// Execute media action using nircmd
+pub fn execute_media_action_nircmd(action: super::super::MediaAction) -> Result<()> {
+    use super::super::MediaAction;
+    
+    let cmd = match action {
+        MediaAction::Play => "mediaplay",
+        MediaAction::Pause => "mediapause",
+        MediaAction::PlayPause => "mediaplaypause",
+        MediaAction::Next => "medianext",
+        MediaAction::Previous => "mediaprev",
+        MediaAction::Stop => "mediastop",
+    };
+
+    debug!("Executing media action via nircmd: {}", cmd);
+
+    let output = Command::new("nircmd.exe")
+        .arg(cmd)
+        .output()
+        .context("Failed to execute nircmd")?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        bail!("nircmd {} failed: {}", cmd, stderr);
+    }
+
+    info!("Media action executed via nircmd: {}", cmd);
+    Ok(())
+}
+
+/// Execute media action using keyboard simulation
+pub fn execute_media_action_keyboard_windows(action: super::super::MediaAction) -> Result<()> {
+    use super::super::MediaAction;
+    
+    let key = match action {
+        MediaAction::Play => "VK_MEDIA_PLAY_PAUSE",
+        MediaAction::Pause => "VK_MEDIA_PLAY_PAUSE",
+        MediaAction::PlayPause => "VK_MEDIA_PLAY_PAUSE",
+        MediaAction::Next => "VK_MEDIA_NEXT_TRACK",
+        MediaAction::Previous => "VK_MEDIA_PREV_TRACK",
+        MediaAction::Stop => "VK_MEDIA_STOP",
+    };
+
+    debug!("Executing media action via keyboard: {}", key);
+    
+    // Stub implementation - would use SendInput in real implementation
+    warn!("Windows keyboard media control - stub implementation");
+    info!("Media action simulated: {}", key);
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
