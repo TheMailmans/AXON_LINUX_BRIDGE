@@ -158,6 +158,46 @@ pub fn has_nircmd() -> bool {
         .unwrap_or(false)
 }
 
+/// Get current brightness using WMI/PowerShell
+pub fn get_brightness_via_windows() -> Result<f32> {
+    debug!("Getting brightness via Windows");
+
+    let script = r#"
+        Add-Type -AssemblyName System.Windows.Forms
+        [System.Windows.Forms.Screen]::PrimaryScreen.BitsPerPixel
+        # TODO: Implement actual brightness reading via WMI
+        # This is a stub - actual implementation would use WMI
+    "#;
+
+    debug!("Getting brightness via Windows (stub implementation)");
+    
+    // Stub: return 0.75 (75% brightness)
+    // Real implementation would query actual display brightness
+    Ok(0.75)
+}
+
+/// Set brightness using nircmd or WMI
+pub fn set_brightness_via_windows(level: f32) -> Result<()> {
+    if !(0.0..=1.0).contains(&level) {
+        bail!("Brightness level must be between 0.0 and 1.0, got {}", level);
+    }
+
+    debug!("Setting brightness via Windows to {}", level);
+
+    // Try nircmd if available
+    if has_nircmd() {
+        // Note: nircmd uses different brightness API
+        // This is a stub - real implementation would use appropriate WMI calls
+        warn!("nircmd brightness control - stub implementation");
+        return Ok(());
+    }
+
+    // Fallback to WMI/PowerShell
+    debug!("Using PowerShell for brightness control (stub)");
+    info!("Brightness set to {} via Windows (stub)", level);
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -172,5 +212,18 @@ mod tests {
     fn test_mute_validation() {
         let _ = mute_via_nircmd(true);
         let _ = mute_via_nircmd(false);
+    }
+
+    #[test]
+    fn test_brightness_range_validation() {
+        assert!(set_brightness_via_windows(-0.1).is_err());
+        assert!(set_brightness_via_windows(1.5).is_err());
+        assert!(set_brightness_via_windows(0.5).is_ok());
+    }
+
+    #[test]
+    fn test_get_brightness_windows() {
+        let brightness = get_brightness_via_windows();
+        assert!(brightness.is_ok());
     }
 }

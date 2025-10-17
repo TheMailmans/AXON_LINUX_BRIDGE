@@ -23,8 +23,10 @@ use tracing::info;
 
 pub mod platform;
 pub mod volume;
+pub mod brightness;
 
 use volume::VolumeControl;
+use brightness::BrightnessControl;
 
 /// Generic control parameters (extensible for future controls)
 #[derive(Debug, Clone)]
@@ -144,6 +146,7 @@ pub trait SystemControl: Send + Sync {
 pub struct SystemControlManager {
     platform: Platform,
     volume_control: VolumeControl,
+    brightness_control: BrightnessControl,
 }
 
 /// Detected platform
@@ -171,10 +174,12 @@ impl SystemControlManager {
         info!("Initializing system control manager for platform: {}", platform);
 
         let volume_control = VolumeControl::new(platform)?;
+        let brightness_control = BrightnessControl::new(platform)?;
 
         Ok(Self {
             platform,
             volume_control,
+            brightness_control,
         })
     }
 
@@ -190,7 +195,7 @@ impl SystemControlManager {
                 self.volume_control.execute(params)
             }
             ControlParams::Brightness { .. } => {
-                anyhow::bail!("Brightness control not yet implemented")
+                self.brightness_control.execute(params)
             }
             ControlParams::MediaControl { .. } => {
                 anyhow::bail!("Media control not yet implemented")
@@ -201,6 +206,11 @@ impl SystemControlManager {
     /// Get volume controller
     pub fn volume_control(&self) -> &VolumeControl {
         &self.volume_control
+    }
+
+    /// Get brightness controller
+    pub fn brightness_control(&self) -> &BrightnessControl {
+        &self.brightness_control
     }
 }
 

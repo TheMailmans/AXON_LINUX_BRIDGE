@@ -99,6 +99,56 @@ pub fn mute_via_osascript(muted: bool) -> Result<()> {
     Ok(())
 }
 
+/// Get current brightness using osascript
+pub fn get_brightness_via_osascript() -> Result<f32> {
+    debug!("Getting brightness via osascript");
+
+    let output = Command::new("osascript")
+        .args(&["-e", "tell application \"System Events\" to tell appearance preferences to get brightness"])
+        .output()
+        .context("Failed to execute osascript for brightness")?;
+
+    if !output.status.success() {
+        bail!("osascript brightness query failed");
+    }
+
+    let stdout = String::from_utf8(output.stdout)?;
+    let brightness: f32 = stdout.trim().parse()?;
+
+    let normalized = (brightness).clamp(0.0, 1.0);
+    debug!("Parsed brightness from osascript: {} -> {}", brightness, normalized);
+
+    Ok(normalized)
+}
+
+/// Set brightness using osascript
+pub fn set_brightness_via_osascript(level: f32) -> Result<()> {
+    if !(0.0..=1.0).contains(&level) {
+        bail!("Brightness level must be between 0.0 and 1.0, got {}", level);
+    }
+
+    let brightness_int = (level * 100.0) as i32;
+    let script = format!(
+        "tell application \"System Events\" to tell appearance preferences to set brightness to {}",
+        brightness_int
+    );
+
+    debug!("Setting brightness via osascript to {}%", brightness_int);
+
+    let output = Command::new("osascript")
+        .args(&["-e", &script])
+        .output()
+        .context("Failed to execute osascript for brightness set")?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        bail!("osascript brightness set failed: {}", stderr);
+    }
+
+    info!("Brightness set to {}% via osascript", brightness_int);
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -116,5 +166,12 @@ mod tests {
     fn test_mute_validation() {
         let _ = mute_via_osascript(true);
         let _ = mute_via_osascript(false);
+    }
+
+    #[test]
+    fn test_brightness_range_validation() {
+        assert!(set_brightness_via_osascript(-0.1).is_err());
+        assert!(set_brightness_via_osascript(1.5).is_err());
+        let _ = set_brightness_via_osascript(0.5);
     }
 }
