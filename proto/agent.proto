@@ -56,6 +56,10 @@ service DesktopAgent {
 
   // NEW in v2.2: Health and telemetry
   rpc HealthCheck(HealthCheckRequest) returns (HealthCheckResponse);
+  
+  // NEW in v2.4: Batch and clipboard operations
+  rpc BatchExecute(BatchRequest) returns (BatchResponse);
+  rpc SetClipboardContent(SetClipboardRequest) returns (SetClipboardResponse);
 }
 
 // Connection
@@ -417,7 +421,11 @@ message GetClipboardRequest {
 }
 
 message GetClipboardResponse {
-  string content = 1;
+  bool success = 1;
+  string content = 2;
+  string content_type = 3;  // "text", "image", "html" (NEW in v2.4)
+  int64 retrieved_at = 4;   // NEW in v2.4
+  optional string error = 5;  // NEW in v2.4
 }
 
 // Health monitoring (NEW in v2.2)
@@ -537,4 +545,65 @@ message TextElement {
   string text = 1;            // Extracted text
   Rectangle bounds = 2;       // Text bounding box
   float confidence = 3;       // OCR confidence (0.0 - 1.0)
+}
+
+// NEW in v2.4: Batch operations
+message Operation {
+  oneof op {
+    MouseMoveRequest mouse_move = 1;
+    MouseClickRequest mouse_click = 2;
+    KeyPressRequest key_press = 3;
+    ScrollRequest scroll = 4;
+    TypeTextRequest type_text = 5;
+  }
+}
+
+message BatchRequest {
+  string agent_id = 1;
+  repeated Operation operations = 2;
+  bool stop_on_error = 3;  // Stop executing if any operation fails
+}
+
+message OperationResult {
+  bool success = 1;
+  optional string error = 2;
+  optional ErrorCode error_code = 3;
+  int64 execution_time_ms = 4;
+  optional string request_id = 5;
+}
+
+message BatchResponse {
+  repeated OperationResult results = 1;
+  int32 success_count = 2;
+  int32 failure_count = 3;
+  int64 total_time_ms = 4;
+}
+
+// NEW in v2.4: Clipboard operations
+message SetClipboardRequest {
+  string agent_id = 1;
+  string content = 2;
+  string content_type = 3;  // "text", "image", "html"
+}
+
+message SetClipboardResponse {
+  bool success = 1;
+  optional string error = 2;
+  int64 set_at = 3;
+}
+
+// NEW in v2.4: Differential frames
+message DiffRegion {
+  int32 x = 1;
+  int32 y = 2;
+  int32 width = 3;
+  int32 height = 4;
+  bytes pixel_data = 5;
+}
+
+message DiffFrame {
+  string base_frame_hash = 1;      // Hash of reference frame
+  repeated DiffRegion regions = 2;  // Changed regions
+  int64 total_changed_pixels = 3;
+  int32 changed_percent = 4;       // % of frame changed (0-100)
 }

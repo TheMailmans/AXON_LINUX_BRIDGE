@@ -1343,7 +1343,8 @@ impl DesktopAgent for DesktopAgentService {
         request: Request<GetClipboardRequest>,
     ) -> Result<Response<GetClipboardResponse>, Status> {
         let _req = request.into_inner();
-        info!("GetClipboard called");
+        let (metrics, request_id) = self.begin_request("get_clipboard");
+        info!("[{}] GetClipboard called", request_id);
         
         #[cfg(target_os = "macos")]
         {
@@ -1355,8 +1356,18 @@ impl DesktopAgent for DesktopAgentService {
             
             let content = String::from_utf8_lossy(&output.stdout).to_string();
             
-            info!("Clipboard content: {} bytes", content.len());
-            Ok(Response::new(GetClipboardResponse { content }))
+            info!("[{}] Clipboard content: {} bytes", request_id, content.len());
+            self.end_success("get_clipboard", &request_id, &metrics);
+            Ok(Response::new(GetClipboardResponse {
+                success: true,
+                content,
+                content_type: "text".into(),
+                retrieved_at: std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_millis() as i64,
+                error: None,
+            }))
         }
         
         #[cfg(target_os = "linux")]
@@ -1372,12 +1383,23 @@ impl DesktopAgent for DesktopAgentService {
             
             let content = String::from_utf8_lossy(&output.stdout).to_string();
             
-            info!("Clipboard content: {} bytes", content.len());
-            Ok(Response::new(GetClipboardResponse { content }))
+            info!("[{}] Clipboard content: {} bytes", request_id, content.len());
+            self.end_success("get_clipboard", &request_id, &metrics);
+            Ok(Response::new(GetClipboardResponse {
+                success: true,
+                content,
+                content_type: "text".into(),
+                retrieved_at: std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_millis() as i64,
+                error: None,
+            }))
         }
         
         #[cfg(not(any(target_os = "macos", target_os = "linux")))]
         {
+            self.end_failure("get_clipboard", &request_id, &metrics, "Platform not supported");
             Err(Status::unimplemented("GetClipboard not supported on this platform"))
         }
     }
@@ -2068,6 +2090,50 @@ impl DesktopAgent for DesktopAgentService {
               cache_stats.hit_rate * 100.0);
         
         Ok(Response::new(response))
+    }
+    
+    // NEW in v2.4: Batch execution
+    async fn batch_execute(
+        &self,
+        request: Request<BatchRequest>,
+    ) -> Result<Response<BatchResponse>, Status> {
+        let req = request.into_inner();
+        let (metrics, request_id) = self.begin_request("batch_execute");
+        
+        info!("[{}] BatchExecute: {} operations", request_id, req.operations.len());
+        
+        // TODO: Implement batch execution in Phase 2
+        self.end_success("batch_execute", &request_id, &metrics);
+        
+        Ok(Response::new(BatchResponse {
+            results: vec![],
+            success_count: 0,
+            failure_count: 0,
+            total_time_ms: metrics.elapsed_ms(),
+        }))
+    }
+    
+    // NEW in v2.4: Clipboard write
+    async fn set_clipboard_content(
+        &self,
+        request: Request<SetClipboardRequest>,
+    ) -> Result<Response<SetClipboardResponse>, Status> {
+        let req = request.into_inner();
+        let (metrics, request_id) = self.begin_request("set_clipboard_content");
+        
+        info!("[{}] SetClipboardContent: {} bytes", request_id, req.content.len());
+        
+        // TODO: Implement clipboard write in Phase 3
+        self.end_success("set_clipboard_content", &request_id, &metrics);
+        
+        Ok(Response::new(SetClipboardResponse {
+            success: true,
+            error: None,
+            set_at: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis() as i64,
+        }))
     }
 }
 

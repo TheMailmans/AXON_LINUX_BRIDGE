@@ -14,6 +14,8 @@ pub mod a11y;
 pub mod metrics;
 pub mod validation;
 pub mod health;
+pub mod batch;
+pub mod clipboard;
 
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 pub mod desktop_apps;
