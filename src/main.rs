@@ -14,6 +14,9 @@ mod proto_gen;
 mod streaming;
 mod video;
 mod a11y;
+mod metrics;
+mod validation;
+mod health;
 
 use agent::Agent;
 use grpc_service::DesktopAgentService;

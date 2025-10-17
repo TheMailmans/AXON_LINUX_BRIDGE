@@ -9,7 +9,7 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use tokio::time::{interval, Duration};
 use tonic::{Request, Response, Status};
-use tracing::{info, error, debug, warn};
+use tracing::{debug, error, info, warn};
 
 use crate::proto_gen::agent::desktop_agent_server::{DesktopAgent, DesktopAgentServer};
 use crate::proto_gen::agent::*;
@@ -18,24 +18,63 @@ use crate::agent::Agent;
 use crate::desktop_apps::{AppIndex, launch_with_gio, launch_with_gtk, launch_with_xdg, launch_direct_exec};
 use tokio_stream::Stream;
 use std::pin::Pin;
+use crate::metrics::{BridgeMetrics, RequestMetrics};
+use crate::validation::CoordinateValidator;
+use crate::health::HealthMonitor;
 
 /// gRPC service wrapper around Agent
 pub struct DesktopAgentService {
     agent: Arc<RwLock<Option<Agent>>>,
     #[cfg(target_os = "linux")]
     app_index: Arc<RwLock<AppIndex>>,
+    metrics: BridgeMetrics,
+    coordinate_validator: Arc<CoordinateValidator>,
+    health_monitor: Arc<RwLock<HealthMonitor>>,
 }
 
 impl DesktopAgentService {
     pub fn new() -> Self {
         info!("🚀 Initializing Desktop Agent Service...");
+        let system_info = crate::platform::get_system_info()
+            .expect("Failed to obtain system info for validator setup");
         Self {
             agent: Arc::new(RwLock::new(None)),
             #[cfg(target_os = "linux")]
             app_index: Arc::new(RwLock::new(AppIndex::new())),
+            metrics: BridgeMetrics::new(),
+            coordinate_validator: Arc::new(CoordinateValidator::new(
+                system_info.screen_width as i32,
+                system_info.screen_height as i32,
+            )),
+            health_monitor: Arc::new(RwLock::new(HealthMonitor::new())),
         }
     }
     
+    fn begin_request(&self, name: &'static str) -> (RequestMetrics, String) {
+        let metrics = RequestMetrics::new();
+        let request_id = metrics.request_id.clone();
+        debug!("{}[{}] started", name, request_id);
+        (metrics, request_id)
+    }
+
+    fn end_success(&self, name: &'static str, request_id: &str, metrics: &RequestMetrics) {
+        let elapsed = metrics.elapsed_ms();
+        self.metrics.record_success(elapsed);
+        info!("{}[{}] completed in {}ms", name, request_id, elapsed);
+    }
+
+    fn end_failure(
+        &self,
+        name: &'static str,
+        request_id: &str,
+        metrics: &RequestMetrics,
+        err: &str,
+    ) {
+        let elapsed = metrics.elapsed_ms();
+        self.metrics.record_failure(elapsed);
+        error!("{}[{}] failed in {}ms: {}", name, request_id, elapsed, err);
+    }
+
     pub fn server() -> DesktopAgentServer<Self> {
         DesktopAgentServer::new(Self::new())
     }
@@ -443,40 +482,66 @@ impl DesktopAgent for DesktopAgentService {
         request: Request<MouseMoveRequest>,
     ) -> Result<Response<InputResponse>, Status> {
         let req = request.into_inner();
-        info!("inject_mouse_move: x={}, y={}", req.x, req.y);
-        
+        let (metrics, request_id) = self.begin_request("inject_mouse_move");
+        info!(
+            "inject_mouse_move[{}]: x={}, y={}",
+            request_id, req.x, req.y
+        );
+
+        if let Err(err) = self.coordinate_validator.validate(req.x, req.y) {
+            warn!(
+                "inject_mouse_move[{}]: invalid coordinates - {}",
+                request_id, err
+            );
+            self.end_failure("inject_mouse_move", &request_id, &metrics, &err.to_string());
+            return Ok(Response::new(InputResponse {
+                success: false,
+                error: Some(err.to_string()),
+                error_code_enum: Some(ErrorCode::InvalidCoordinates as i32),
+                window_changed: None,
+                focus_changed: None,
+                new_window_title: None,
+                new_window_id: None,
+                execution_time_ms: Some(metrics.elapsed_ms()),
+                request_id: Some(request_id),
+            }));
+        }
+
         // CRITICAL FIX: Use spawn_blocking to avoid blocking the async runtime
-        // xdotool/Command is synchronous blocking I/O
         let result = tokio::task::spawn_blocking(move || {
             crate::input::inject_mouse_move(req.x, req.y)
         })
         .await
         .map_err(|e| Status::internal(format!("Task join error: {}", e)))?
         .map_err(|e| Status::internal(format!("Mouse move failed: {}", e)));
-        
+
         match result {
             Ok(()) => {
-                info!("Mouse move successful");
+                self.end_success("inject_mouse_move", &request_id, &metrics);
                 Ok(Response::new(InputResponse {
                     success: true,
                     error: None,
-                    error_code: None,
+                    error_code_enum: Some(ErrorCode::Success as i32),
                     window_changed: None,
                     focus_changed: None,
                     new_window_title: None,
                     new_window_id: None,
+                    execution_time_ms: Some(metrics.elapsed_ms()),
+                    request_id: Some(request_id),
                 }))
             }
             Err(e) => {
-                error!("Mouse move failed: {}", e);
+                self.end_failure("inject_mouse_move", &request_id, &metrics, &e.to_string());
                 Ok(Response::new(InputResponse {
                     success: false,
                     error: Some(e.to_string()),
-                    error_code: None,
+                    error_code_enum: Some(ErrorCode::DisplayServerError as i32),
                     window_changed: None,
                     focus_changed: None,
                     new_window_title: None,
                     new_window_id: None,
+                    execution_time_ms: Some(metrics.elapsed_ms()),
+                    request_id: Some(request_id),
                 }))
             }
         }
@@ -487,53 +552,76 @@ impl DesktopAgent for DesktopAgentService {
         request: Request<MouseClickRequest>,
     ) -> Result<Response<InputResponse>, Status> {
         let req = request.into_inner();
+        let (metrics, request_id) = self.begin_request("inject_mouse_click");
         let button = match req.button() {
             crate::proto_gen::agent::MouseButton::Left => "left",
             crate::proto_gen::agent::MouseButton::Right => "right",
             crate::proto_gen::agent::MouseButton::Middle => "middle",
         };
-        
-        info!("inject_mouse_click: x={}, y={}, button={}", req.x, req.y, button);
-        
+
+        info!(
+            "inject_mouse_click[{}]: x={}, y={}, button={}",
+            request_id, req.x, req.y, button
+        );
+
+        if let Err(err) = self.coordinate_validator.validate(req.x, req.y) {
+            warn!(
+                "inject_mouse_click[{}]: invalid coordinates - {}",
+                request_id, err
+            );
+            self.end_failure(
+                "inject_mouse_click",
+                &request_id,
+                &metrics,
+                &err.to_string(),
+            );
+            return Ok(Response::new(InputResponse {
+                success: false,
+                error: Some(err.to_string()),
+                error_code_enum: Some(ErrorCode::InvalidCoordinates as i32),
+                window_changed: None,
+                focus_changed: None,
+                new_window_title: None,
+                new_window_id: None,
+                execution_time_ms: Some(metrics.elapsed_ms()),
+                request_id: Some(request_id),
+            }));
+        }
+
         // CRITICAL FIX: Use spawn_blocking to avoid blocking the async runtime
-        // xdotool/Command is synchronous blocking I/O
         let x = req.x;
         let y = req.y;
         let button_str = button.to_string();
-        
+        let request_id_clone = request_id.clone();
+
         let result = tokio::task::spawn_blocking(move || {
-            // ACTION VALIDATION (v2.1): Capture window state before action
             #[cfg(target_os = "linux")]
             let window_before = get_active_window_info().ok();
-            
-            // Execute the click
+
             let click_result = crate::input::inject_mouse_click(x, y, &button_str);
-            
-            // ACTION VALIDATION (v2.1): Capture window state after action  
+
             #[cfg(target_os = "linux")]
             let window_after = if click_result.is_ok() {
-                // Small delay to allow window state to update
                 std::thread::sleep(std::time::Duration::from_millis(50));
                 get_active_window_info().ok()
             } else {
                 None
             };
-            
+
             #[cfg(target_os = "linux")]
             let validation = (window_before, window_after);
             #[cfg(not(target_os = "linux"))]
             let validation = (None::<(String, String)>, None::<(String, String)>);
-            
+
             (click_result, validation)
         })
         .await
         .map_err(|e| Status::internal(format!("Task join error: {}", e)))?;
-        
+
         let (click_result, (window_before, window_after)) = result;
-        
+
         match click_result {
             Ok(()) => {
-                // ACTION VALIDATION (v2.1): Check if window state changed
                 let (window_changed, focus_changed, new_window_title, new_window_id) = match (window_before, window_after) {
                     (Some((id_before, title_before)), Some((id_after, title_after))) => {
                         let win_changed = id_before != id_after;
@@ -544,31 +632,35 @@ impl DesktopAgent for DesktopAgentService {
                             if win_changed { Some(title_after) } else { None },
                             if win_changed { Some(id_after) } else { None },
                         )
-                    },
+                    }
                     _ => (None, None, None, None),
                 };
-                
-                info!("Mouse click successful (window_changed={:?})", window_changed);
+
+                self.end_success("inject_mouse_click", &request_id, &metrics);
                 Ok(Response::new(InputResponse {
                     success: true,
                     error: None,
-                    error_code: None,
+                    error_code_enum: Some(ErrorCode::Success as i32),
                     window_changed,
                     focus_changed,
                     new_window_title,
                     new_window_id,
+                    execution_time_ms: Some(metrics.elapsed_ms()),
+                    request_id: Some(request_id),
                 }))
             }
             Err(e) => {
-                error!("Mouse click failed: {}", e);
+                self.end_failure("inject_mouse_click", &request_id, &metrics, &e.to_string());
                 Ok(Response::new(InputResponse {
                     success: false,
                     error: Some(e.to_string()),
-                    error_code: None,
+                    error_code_enum: Some(ErrorCode::DisplayServerError as i32),
                     window_changed: None,
                     focus_changed: None,
                     new_window_title: None,
                     new_window_id: None,
+                    execution_time_ms: Some(metrics.elapsed_ms()),
+                    request_id: Some(request_id),
                 }))
             }
         }
@@ -579,43 +671,66 @@ impl DesktopAgent for DesktopAgentService {
         request: Request<KeyPressRequest>,
     ) -> Result<Response<InputResponse>, Status> {
         let req = request.into_inner();
-        info!("inject_key_press: key={}, modifiers={:?}", req.key, req.modifiers);
-        
-        // CRITICAL FIX: Use spawn_blocking to avoid blocking the async runtime
-        // xdotool/Command is synchronous blocking I/O
+        let (metrics, request_id) = self.begin_request("inject_key_press");
+        info!(
+            "inject_key_press[{}]: key={}, modifiers={:?}",
+            request_id, req.key, req.modifiers
+        );
+
+        if req.key.trim().is_empty() {
+            let err = "Key cannot be empty".to_string();
+            warn!("inject_key_press[{}]: {}", request_id, err);
+            self.end_failure("inject_key_press", &request_id, &metrics, &err);
+            return Ok(Response::new(InputResponse {
+                success: false,
+                error: Some(err.clone()),
+                error_code_enum: Some(ErrorCode::InvalidInput as i32),
+                window_changed: None,
+                focus_changed: None,
+                new_window_title: None,
+                new_window_id: None,
+                execution_time_ms: Some(metrics.elapsed_ms()),
+                request_id: Some(request_id),
+            }));
+        }
+
         let key = req.key.clone();
         let modifiers = req.modifiers.clone();
-        
+
         let result = tokio::task::spawn_blocking(move || {
             crate::input::inject_key_press(&key, &modifiers)
         })
         .await
         .map_err(|e| Status::internal(format!("Task join error: {}", e)))?
         .map_err(|e| Status::internal(format!("Key press failed: {}", e)));
-        
+
         match result {
             Ok(()) => {
-                info!("Key press successful");
+                self.end_success("inject_key_press", &request_id, &metrics);
                 Ok(Response::new(InputResponse {
                     success: true,
                     error: None,
-                    error_code: None,
+                    error_code_enum: Some(ErrorCode::Success as i32),
                     window_changed: None,
                     focus_changed: None,
                     new_window_title: None,
                     new_window_id: None,
+                    execution_time_ms: Some(metrics.elapsed_ms()),
+                    request_id: Some(request_id),
                 }))
             }
             Err(e) => {
-                error!("Key press failed: {}", e);
+                self.end_failure("inject_key_press", &request_id, &metrics, &e.to_string());
                 Ok(Response::new(InputResponse {
                     success: false,
                     error: Some(e.to_string()),
-                    error_code: None,
+                    error_code_enum: Some(ErrorCode::DisplayServerError as i32),
                     window_changed: None,
                     focus_changed: None,
                     new_window_title: None,
                     new_window_id: None,
+                    execution_time_ms: Some(metrics.elapsed_ms()),
+                    request_id: Some(request_id),
                 }))
             }
         }
@@ -651,11 +766,13 @@ impl DesktopAgent for DesktopAgentService {
                 Ok(Response::new(InputResponse {
                     success: true,
                     error: None,
-                    error_code: None,
+                    error_code_enum: Some(ErrorCode::Success as i32),
                     window_changed: None,
                     focus_changed: None,
                     new_window_title: None,
                     new_window_id: None,
+                    execution_time_ms: None,
+                    request_id: None,
                 }))
             }
             Err(e) => {
@@ -663,11 +780,13 @@ impl DesktopAgent for DesktopAgentService {
                 Ok(Response::new(InputResponse {
                     success: false,
                     error: Some(e.to_string()),
-                    error_code: None,
+                    error_code_enum: Some(ErrorCode::DisplayServerError as i32),
                     window_changed: None,
                     focus_changed: None,
                     new_window_title: None,
                     new_window_id: None,
+                    execution_time_ms: None,
+                    request_id: None,
                 }))
             }
         }
@@ -703,11 +822,13 @@ impl DesktopAgent for DesktopAgentService {
                 Ok(Response::new(InputResponse {
                     success: true,
                     error: None,
-                    error_code: None,
+                    error_code_enum: Some(ErrorCode::Success as i32),
                     window_changed: None,
                     focus_changed: None,
                     new_window_title: None,
                     new_window_id: None,
+                    execution_time_ms: None,
+                    request_id: None,
                 }))
             }
             Err(e) => {
@@ -715,11 +836,13 @@ impl DesktopAgent for DesktopAgentService {
                 Ok(Response::new(InputResponse {
                     success: false,
                     error: Some(e.to_string()),
-                    error_code: None,
+                    error_code_enum: Some(ErrorCode::DisplayServerError as i32),
                     window_changed: None,
                     focus_changed: None,
                     new_window_title: None,
                     new_window_id: None,
+                    execution_time_ms: None,
+                    request_id: None,
                 }))
             }
         }
@@ -750,11 +873,13 @@ impl DesktopAgent for DesktopAgentService {
                 Ok(Response::new(InputResponse {
                     success: true,
                     error: None,
-                    error_code: None,
+                    error_code_enum: Some(ErrorCode::Success as i32),
                     window_changed: None,
                     focus_changed: None,
                     new_window_title: None,
                     new_window_id: None,
+                    execution_time_ms: None,
+                    request_id: None,
                 }))
             }
             Err(e) => {
@@ -762,11 +887,13 @@ impl DesktopAgent for DesktopAgentService {
                 Ok(Response::new(InputResponse {
                     success: false,
                     error: Some(e.to_string()),
-                    error_code: None,
+                    error_code_enum: Some(ErrorCode::DisplayServerError as i32),
                     window_changed: None,
                     focus_changed: None,
                     new_window_title: None,
                     new_window_id: None,
+                    execution_time_ms: None,
+                    request_id: None,
                 }))
             }
         }
@@ -795,11 +922,13 @@ impl DesktopAgent for DesktopAgentService {
                 Ok(Response::new(InputResponse {
                     success: true,
                     error: None,
-                    error_code: None,
+                    error_code_enum: Some(ErrorCode::Success as i32),
                     window_changed: None,
                     focus_changed: None,
                     new_window_title: None,
                     new_window_id: None,
+                    execution_time_ms: None,
+                    request_id: None,
                 }))
             }
             Err(e) => {
@@ -807,11 +936,13 @@ impl DesktopAgent for DesktopAgentService {
                 Ok(Response::new(InputResponse {
                     success: false,
                     error: Some(e.to_string()),
-                    error_code: None,
+                    error_code_enum: Some(ErrorCode::DisplayServerError as i32),
                     window_changed: None,
                     focus_changed: None,
                     new_window_title: None,
                     new_window_id: None,
+                    execution_time_ms: None,
+                    request_id: None,
                 }))
             }
         }
@@ -1790,6 +1921,46 @@ impl DesktopAgent for DesktopAgentService {
             text_elements: vec![],
             error: Some("Not yet implemented - Tesseract OCR integration pending".to_string()),
         }))
+    }
+    
+    // NEW in v2.2: Health monitoring
+    async fn health_check(
+        &self,
+        _request: Request<HealthCheckRequest>,
+    ) -> Result<Response<HealthCheckResponse>, Status> {
+        let (metrics, request_id) = self.begin_request("health_check");
+        info!("❤️  [{}] HealthCheck called", request_id);
+        
+        // Get health status
+        let mut health_monitor = self.health_monitor.write().await;
+        let health_status = health_monitor.status();
+        let is_healthy = health_monitor.is_healthy();
+        drop(health_monitor);
+        
+        // Get metrics
+        let total_requests = self.metrics.total_requests();
+        let failed_requests = self.metrics.failed_requests();
+        let avg_response_time = self.metrics.avg_response_time_ms();
+        
+        let response = HealthCheckResponse {
+            healthy: is_healthy,
+            status: if is_healthy { "healthy".into() } else { "degraded".into() },
+            active_connections: 1, // TODO: Track actual connections
+            cpu_usage_percent: health_status.cpu_usage_percent,
+            memory_usage_mb: health_status.memory_usage_mb,
+            version: env!("CARGO_PKG_VERSION").into(),
+            uptime_seconds: health_status.uptime_seconds,
+            total_requests: total_requests as i64,
+            failed_requests: failed_requests as i64,
+            avg_response_time_ms: avg_response_time,
+        };
+        
+        self.end_success("health_check", &request_id, &metrics);
+        info!("✅ [{}] HealthCheck: healthy={}, cpu={:.1}%, mem={}MB, uptime={}s",
+              request_id, is_healthy, health_status.cpu_usage_percent,
+              health_status.memory_usage_mb, health_status.uptime_seconds);
+        
+        Ok(Response::new(response))
     }
 }
 

@@ -53,6 +53,9 @@ service DesktopAgent {
   rpc GetFocusedWindowScreenshot(GetFocusedWindowScreenshotRequest) returns (GetFocusedWindowScreenshotResponse);
   rpc GetAccessibleElements(GetAccessibleElementsRequest) returns (GetAccessibleElementsResponse);
   rpc ExtractTextFromScreen(ExtractTextRequest) returns (ExtractTextResponse);
+
+  // NEW in v2.2: Health and telemetry
+  rpc HealthCheck(HealthCheckRequest) returns (HealthCheckResponse);
 }
 
 // Connection
@@ -215,13 +218,17 @@ message ScrollRequest {
 message InputResponse {
   bool success = 1;
   optional string error = 2;
-  optional string error_code = 3; // Structured error code (e.g., "NO_FOCUS", "WINDOW_NOT_FOUND")
+  optional ErrorCode error_code_enum = 3; // Structured error code for programmatic handling
   
   // Action validation (NEW in v2.1)
   optional bool window_changed = 4;     // Did active window change after action?
   optional bool focus_changed = 5;      // Did focus change?
   optional string new_window_title = 6; // New window title if changed
   optional string new_window_id = 7;    // New window ID if changed
+
+  // Telemetry (NEW in v2.2)
+  optional int64 execution_time_ms = 8; // Total time spent executing request
+  optional string request_id = 9;       // Unique identifier for request tracing
 }
 
 // System info
@@ -335,6 +342,21 @@ enum ClickType {
   RELEASE = 3;
 }
 
+// Standardized error codes (NEW in v2.2)
+enum ErrorCode {
+  SUCCESS = 0;
+  INVALID_COORDINATES = 1;
+  WINDOW_NOT_FOUND = 2;
+  DISPLAY_SERVER_ERROR = 3;
+  PERMISSION_DENIED = 4;
+  TIMEOUT = 5;
+  APP_NOT_FOUND = 6;
+  NETWORK_ERROR = 7;
+  INVALID_INPUT = 8;
+  RESOURCE_BUSY = 9;
+  NOT_IMPLEMENTED = 10;
+}
+
 // OSWorld evaluator support messages
 message GetWindowListRequest {
   string agent_id = 1;
@@ -396,6 +418,24 @@ message GetClipboardRequest {
 
 message GetClipboardResponse {
   string content = 1;
+}
+
+// Health monitoring (NEW in v2.2)
+message HealthCheckRequest {
+  string agent_id = 1;
+}
+
+message HealthCheckResponse {
+  bool healthy = 1;
+  string status = 2;               // "healthy", "degraded", or "unhealthy"
+  int32 active_connections = 3;    // Current active connections to bridge
+  float cpu_usage_percent = 4;     // Bridge process CPU usage
+  int64 memory_usage_mb = 5;       // Bridge process memory usage in MB
+  string version = 6;              // Bridge version string
+  int64 uptime_seconds = 7;        // Seconds since bridge start
+  int64 total_requests = 8;        // Total RPC requests handled
+  int64 failed_requests = 9;       // Total failed RPC requests
+  float avg_response_time_ms = 10; // Average RPC response time
 }
 
 // Application control

@@ -1,6 +1,6 @@
 [package]
 name = "axon-desktop-agent"
-version = "0.1.0"
+version = "2.2.0"
 edition = "2021"
 authors = ["AxonHub Contributors"]
 description = "Desktop capture agent for AxonHub"
@@ -38,7 +38,10 @@ anyhow = "1.0"
 thiserror = "1.0"
 
 # UUID generation
-uuid = { version = "1.6", features = ["v4"] }
+uuid = { version = "1.6", features = ["v4", "serde"] }
+
+# System monitoring for health checks
+sysinfo = "0.30"
 
 # Hostname detection
 hostname = "0.3"
