@@ -1,6 +1,11 @@
 use anyhow::Result;
 use tracing::info;
 
+// NEW in v2.3: Compression and caching modules
+pub mod compression;
+pub mod cache;
+pub mod retry;
+
 // Platform-specific implementations
 #[cfg(target_os = "macos")]
 pub mod macos;
