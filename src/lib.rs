@@ -19,6 +19,7 @@ pub mod validation;
 pub mod health;
 pub mod batch;
 pub mod clipboard;
+pub mod rate_limit;
 
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 pub mod desktop_apps;
