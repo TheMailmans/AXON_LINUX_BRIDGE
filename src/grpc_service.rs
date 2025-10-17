@@ -14,6 +14,7 @@ use tracing::{debug, error, info, warn};
 use crate::proto_gen::agent::desktop_agent_server::{DesktopAgent, DesktopAgentServer};
 use crate::proto_gen::agent::*;
 use crate::agent::Agent;
+use axon_desktop_agent::SystemControlManager;
 #[cfg(target_os = "linux")]
 use crate::desktop_apps::{AppIndex, launch_with_gio, launch_with_gtk, launch_with_xdg, launch_direct_exec};
 use tokio_stream::Stream;
@@ -2150,6 +2151,140 @@ impl DesktopAgent for DesktopAgentService {
                 .unwrap_or_default()
                 .as_millis() as i64,
         }))
+    }
+
+    // NEW in v3.1: Volume control - Get current volume
+    async fn get_volume(
+        &self,
+        request: Request<GetVolumeRequest>,
+    ) -> Result<Response<GetVolumeResponse>, Status> {
+        let req = request.into_inner();
+        let (metrics, request_id) = self.begin_request("get_volume");
+        
+        info!("[{}] GetVolume requested", request_id);
+
+        // Get system control manager
+        let manager = SystemControlManager::new()
+            .map_err(|e| {
+                warn!("[{}] Failed to create system control manager: {}", request_id, e);
+                Status::internal("Failed to initialize system control")
+            })?;
+
+        let volume_controller = manager.volume_control();
+        
+        match volume_controller.get_volume() {
+            Ok(level) => {
+                info!("[{}] Got volume: {}", request_id, level);
+                self.end_success("get_volume", &request_id, &metrics);
+                
+                Ok(Response::new(GetVolumeResponse {
+                    level,
+                    is_muted: false,  // TODO: Query actual mute status
+                    method_used: "command".to_string(),
+                    timestamp: std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_millis() as i64,
+                }))
+            }
+            Err(e) => {
+                warn!("[{}] Failed to get volume: {}", request_id, e);
+                self.end_failure("get_volume", &request_id, &metrics, &e.to_string());
+                Err(Status::internal(format!("Failed to get volume: {}", e)))
+            }
+        }
+    }
+
+    // NEW in v3.1: Volume control - Set volume
+    async fn set_volume(
+        &self,
+        request: Request<SetVolumeRequest>,
+    ) -> Result<Response<SetVolumeResponse>, Status> {
+        let req = request.into_inner();
+        let (metrics, request_id) = self.begin_request("set_volume");
+        
+        info!("[{}] SetVolume requested: {}", request_id, req.level);
+
+        // Validate level
+        if !(0.0..=1.0).contains(&req.level) {
+            warn!("[{}] Invalid volume level: {}", request_id, req.level);
+            return Err(Status::invalid_argument("Volume level must be between 0.0 and 1.0"));
+        }
+
+        // Get system control manager
+        let manager = SystemControlManager::new()
+            .map_err(|e| {
+                warn!("[{}] Failed to create system control manager: {}", request_id, e);
+                Status::internal("Failed to initialize system control")
+            })?;
+
+        let volume_controller = manager.volume_control();
+        
+        match volume_controller.set_volume(req.level) {
+            Ok(_) => {
+                info!("[{}] Volume set to {}", request_id, req.level);
+                self.end_success("set_volume", &request_id, &metrics);
+                
+                Ok(Response::new(SetVolumeResponse {
+                    success: true,
+                    actual_level: req.level,
+                    method_used: "command".to_string(),
+                    error: None,
+                    timestamp: std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_millis() as i64,
+                }))
+            }
+            Err(e) => {
+                warn!("[{}] Failed to set volume: {}", request_id, e);
+                self.end_failure("set_volume", &request_id, &metrics, &e.to_string());
+                Err(Status::internal(format!("Failed to set volume: {}", e)))
+            }
+        }
+    }
+
+    // NEW in v3.1: Volume control - Mute/unmute
+    async fn mute_volume(
+        &self,
+        request: Request<MuteVolumeRequest>,
+    ) -> Result<Response<MuteVolumeResponse>, Status> {
+        let req = request.into_inner();
+        let (metrics, request_id) = self.begin_request("mute_volume");
+        
+        info!("[{}] MuteVolume requested: muted={}", request_id, req.muted);
+
+        // Get system control manager
+        let manager = SystemControlManager::new()
+            .map_err(|e| {
+                warn!("[{}] Failed to create system control manager: {}", request_id, e);
+                Status::internal("Failed to initialize system control")
+            })?;
+
+        let volume_controller = manager.volume_control();
+        
+        match volume_controller.mute(req.muted) {
+            Ok(_) => {
+                info!("[{}] Mute set to {}", request_id, req.muted);
+                self.end_success("mute_volume", &request_id, &metrics);
+                
+                Ok(Response::new(MuteVolumeResponse {
+                    success: true,
+                    is_muted: req.muted,
+                    method_used: "command".to_string(),
+                    error: None,
+                    timestamp: std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_millis() as i64,
+                }))
+            }
+            Err(e) => {
+                warn!("[{}] Failed to mute: {}", request_id, e);
+                self.end_failure("mute_volume", &request_id, &metrics, &e.to_string());
+                Err(Status::internal(format!("Failed to mute: {}", e)))
+            }
+        }
     }
 }
 

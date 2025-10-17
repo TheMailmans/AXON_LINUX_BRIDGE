@@ -10,13 +10,17 @@ mod desktop_apps;
 mod grpc_service;
 mod input;
 mod platform;
-mod proto_gen;
 mod streaming;
 mod video;
 mod a11y;
 mod metrics;
 mod validation;
 mod health;
+mod proto_gen {
+    pub mod agent {
+        include!(concat!(env!("OUT_DIR"), "/axon.agent.rs"));
+    }
+}
 
 use agent::Agent;
 use grpc_service::DesktopAgentService;

@@ -4,8 +4,12 @@
  * Core modules for desktop capture and streaming.
  */
 
-// Generated protobuf definitions
-pub mod proto_gen;
+// Generated protobuf definitions - include as a module
+pub mod proto_gen {
+    pub mod agent {
+        include!(concat!(env!("OUT_DIR"), "/axon.agent.rs"));
+    }
+}
 
 pub mod platform;
 pub mod video;
@@ -23,6 +27,7 @@ pub mod rate_limit;
 pub mod cancellation;
 pub mod parallel_batch;
 pub mod advanced_metrics;
+pub mod system_control;
 
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 pub mod desktop_apps;
@@ -30,5 +35,6 @@ pub mod desktop_apps;
 // Re-export commonly used types
 pub use audio::{AudioCapturer, AudioConfig, AudioFrame, AudioSource, EncodedAudioFrame};
 pub use video::{EncodedFrame, VideoEncoder};
+pub use system_control::{SystemControl, SystemControlManager, ControlParams, ControlResult, ControlMethod};
 // pub use capture::ScreenCapturer;  // TODO: Export when ScreenCapturer trait exists
 pub use streaming::StreamManager;

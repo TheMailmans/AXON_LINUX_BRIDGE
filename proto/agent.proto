@@ -60,6 +60,11 @@ service DesktopAgent {
   // NEW in v2.4: Batch and clipboard operations
   rpc BatchExecute(BatchRequest) returns (BatchResponse);
   rpc SetClipboardContent(SetClipboardRequest) returns (SetClipboardResponse);
+  
+  // NEW in v3.1: System control (volume, brightness, media)
+  rpc GetVolume(GetVolumeRequest) returns (GetVolumeResponse);
+  rpc SetVolume(SetVolumeRequest) returns (SetVolumeResponse);
+  rpc MuteVolume(MuteVolumeRequest) returns (MuteVolumeResponse);
 }
 
 // Connection
@@ -612,4 +617,42 @@ message DiffFrame {
   repeated DiffRegion regions = 2;  // Changed regions
   int64 total_changed_pixels = 3;
   int32 changed_percent = 4;       // % of frame changed (0-100)
+}
+
+// NEW in v3.1: Volume control
+message GetVolumeRequest {
+  string agent_id = 1;
+}
+
+message GetVolumeResponse {
+  float level = 1;                  // 0.0-1.0
+  bool is_muted = 2;
+  string method_used = 3;           // "command" or "keyboard"
+  int64 timestamp = 4;
+}
+
+message SetVolumeRequest {
+  string agent_id = 1;
+  float level = 2;                  // 0.0-1.0
+}
+
+message SetVolumeResponse {
+  bool success = 1;
+  float actual_level = 2;           // Level after setting
+  string method_used = 3;           // "command" or "keyboard"
+  optional string error = 4;
+  int64 timestamp = 5;
+}
+
+message MuteVolumeRequest {
+  string agent_id = 1;
+  bool muted = 2;
+}
+
+message MuteVolumeResponse {
+  bool success = 1;
+  bool is_muted = 2;
+  string method_used = 3;           // "command" or "keyboard"
+  optional string error = 4;
+  int64 timestamp = 5;
 }
