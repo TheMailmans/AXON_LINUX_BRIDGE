@@ -122,11 +122,17 @@ message GetFrameRequest {
 
 message GetFrameResponse {
   FrameData frame = 1;
+  optional DiffFrame diff_frame = 2;  // Only set if diff_mode enabled
+  string frame_hash = 3;
+  bool is_diff = 4;
+  int32 changed_percent = 5;  // 0-100, only meaningful if is_diff=true
 }
 
 message StreamFramesRequest {
   string agent_id = 1;
   string capture_id = 2;
+  optional bool enable_diffing = 3;
+  optional int32 min_changed_percent = 4;  // Skip frame if < this percent changed
 }
 
 message FrameData {

@@ -264,6 +264,10 @@ impl DesktopAgent for DesktopAgentService {
                             accessibility_tree: None,
                             discovered_shortcuts: vec![],
                         }),
+                        diff_frame: None,
+                        frame_hash: String::new(),
+                        is_diff: false,
+                        changed_percent: 0,
                     }));
                 }
                 true
@@ -314,6 +318,10 @@ impl DesktopAgent for DesktopAgentService {
                         accessibility_tree: None,
                         discovered_shortcuts: vec![],
                     }),
+                    diff_frame: None,
+                    frame_hash: String::new(),
+                    is_diff: false,
+                    changed_percent: 0,
                 }))
             } else {
                 self.end_success("get_frame", &request_id, &metrics);
@@ -331,6 +339,10 @@ impl DesktopAgent for DesktopAgentService {
                         accessibility_tree: None,
                         discovered_shortcuts: vec![],
                     }),
+                    diff_frame: None,
+                    frame_hash: String::new(),
+                    is_diff: false,
+                    changed_percent: 0,
                 }))
             }
         }
@@ -373,6 +385,10 @@ impl DesktopAgent for DesktopAgentService {
                     accessibility_tree: a11y_tree,
                     discovered_shortcuts: shortcuts,
                 }),
+                diff_frame: None,
+                frame_hash: String::new(),
+                is_diff: false,
+                changed_percent: 0,
             }))
         }
         

@@ -6,6 +6,10 @@ pub mod compression;
 pub mod cache;
 pub mod retry;
 
+// NEW in v2.4: Diffing modules
+pub mod diff;
+pub mod diff_manager;
+
 // Platform-specific implementations
 #[cfg(target_os = "macos")]
 pub mod macos;
