@@ -4,6 +4,9 @@
  * Core modules for desktop capture and streaming.
  */
 
+// Generated protobuf definitions
+pub mod proto_gen;
+
 pub mod platform;
 pub mod video;
 pub mod capture;
