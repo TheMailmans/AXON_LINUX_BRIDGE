@@ -1,0 +1,735 @@
+syntax = "proto3";
+
+package axon.agent;
+
+// Desktop Agent Service
+// Provides screen capture, audio streaming, and input injection
+service DesktopAgent {
+  // Lifecycle management
+  rpc RegisterAgent(ConnectRequest) returns (ConnectResponse);
+  rpc UnregisterAgent(DisconnectRequest) returns (DisconnectResponse);
+  rpc Heartbeat(HeartbeatRequest) returns (HeartbeatResponse);
+  
+  // Capture control
+  rpc StartCapture(StartCaptureRequest) returns (StartCaptureResponse);
+  rpc StopCapture(StopCaptureRequest) returns (StopCaptureResponse);
+  rpc GetFrame(GetFrameRequest) returns (GetFrameResponse);
+  rpc StreamFrames(StreamFramesRequest) returns (stream FrameData);
+  
+  // Audio control
+  rpc StartAudio(StartAudioRequest) returns (StartAudioResponse);
+  rpc StopAudio(StopAudioRequest) returns (StopAudioResponse);
+  rpc StreamAudio(StreamAudioRequest) returns (stream AudioData);
+  
+  // Input injection
+  rpc InjectMouseMove(MouseMoveRequest) returns (InputResponse);
+  rpc InjectMouseClick(MouseClickRequest) returns (InputResponse);
+  rpc InjectMouseDown(MouseClickRequest) returns (InputResponse);
+  rpc InjectMouseUp(MouseClickRequest) returns (InputResponse);
+  rpc InjectScroll(ScrollRequest) returns (InputResponse);
+  rpc InjectKeyPress(KeyPressRequest) returns (InputResponse);
+  rpc TypeText(TypeTextRequest) returns (InputResponse);
+  
+  // System info
+  rpc GetSystemInfo(SystemInfoRequest) returns (SystemInfoResponse);
+  rpc GetCapabilities(CapabilitiesRequest) returns (CapabilitiesResponse);
+  rpc GetActiveWindow(GetActiveWindowRequest) returns (GetActiveWindowResponse);
+  
+  // OSWorld evaluator support - system state queries
+  rpc GetWindowList(GetWindowListRequest) returns (GetWindowListResponse);
+  rpc GetProcessList(GetProcessListRequest) returns (GetProcessListResponse);
+  rpc GetBrowserTabs(GetBrowserTabsRequest) returns (GetBrowserTabsResponse);
+  rpc ListFiles(ListFilesRequest) returns (ListFilesResponse);
+  rpc GetClipboard(GetClipboardRequest) returns (GetClipboardResponse);
+  
+  // Application control
+  rpc LaunchApplication(LaunchApplicationRequest) returns (LaunchApplicationResponse);
+  rpc CloseApplication(CloseApplicationRequest) returns (CloseApplicationResponse);
+  
+  // Screenshot capture
+  rpc TakeScreenshot(TakeScreenshotRequest) returns (TakeScreenshotResponse);
+  
+  // NEW in v2.1: Smart screenshot and UI intelligence
+  rpc GetFocusedWindowScreenshot(GetFocusedWindowScreenshotRequest) returns (GetFocusedWindowScreenshotResponse);
+  rpc GetAccessibleElements(GetAccessibleElementsRequest) returns (GetAccessibleElementsResponse);
+  rpc ExtractTextFromScreen(ExtractTextRequest) returns (ExtractTextResponse);
+
+  // NEW in v2.2: Health and telemetry
+  rpc HealthCheck(HealthCheckRequest) returns (HealthCheckResponse);
+  
+  // NEW in v2.4: Batch and clipboard operations
+  rpc BatchExecute(BatchRequest) returns (BatchResponse);
+  rpc SetClipboardContent(SetClipboardRequest) returns (SetClipboardResponse);
+  
+  // NEW in v3.1: System control (volume, brightness, media)
+  rpc GetVolume(GetVolumeRequest) returns (GetVolumeResponse);
+  rpc SetVolume(SetVolumeRequest) returns (SetVolumeResponse);
+  rpc MuteVolume(MuteVolumeRequest) returns (MuteVolumeResponse);
+  
+  rpc GetBrightness(GetBrightnessRequest) returns (GetBrightnessResponse);
+  rpc SetBrightness(SetBrightnessRequest) returns (SetBrightnessResponse);
+  
+  rpc MediaPlayPause(MediaPlayPauseRequest) returns (MediaPlayPauseResponse);
+  rpc MediaNext(MediaNextRequest) returns (MediaNextResponse);
+  rpc MediaPrevious(MediaPreviousRequest) returns (MediaPreviousResponse);
+  rpc MediaStop(MediaStopRequest) returns (MediaStopResponse);
+}
+
+// Connection
+message ConnectRequest {
+  string session_id = 1;
+  string hub_url = 2;
+  string auth_token = 3;
+}
+
+message ConnectResponse {
+  string agent_id = 1;
+  string status = 2;
+  SystemInfo system_info = 3;
+}
+
+message DisconnectRequest {
+  string agent_id = 1;
+}
+
+message DisconnectResponse {
+  bool success = 1;
+}
+
+message HeartbeatRequest {
+  string agent_id = 1;
+  int64 timestamp = 2;
+}
+
+message HeartbeatResponse {
+  int64 server_timestamp = 1;
+  string status = 2;
+}
+
+// Capture control
+message StartCaptureRequest {
+  string agent_id = 1;
+  CaptureMode mode = 2;
+  optional string window_id = 3;
+  CaptureConfig config = 4;
+}
+
+message StartCaptureResponse {
+  bool success = 1;
+  string capture_id = 2;
+}
+
+message StopCaptureRequest {
+  string agent_id = 1;
+  string capture_id = 2;
+}
+
+message StopCaptureResponse {
+  bool success = 1;
+}
+
+message GetFrameRequest {
+  string agent_id = 1;
+  string capture_id = 2;
+}
+
+message GetFrameResponse {
+  FrameData frame = 1;
+  optional DiffFrame diff_frame = 2;  // Only set if diff_mode enabled
+  string frame_hash = 3;
+  bool is_diff = 4;
+  int32 changed_percent = 5;  // 0-100, only meaningful if is_diff=true
+}
+
+message StreamFramesRequest {
+  string agent_id = 1;
+  string capture_id = 2;
+  optional bool enable_diffing = 3;
+  optional int32 min_changed_percent = 4;  // Skip frame if < this percent changed
+}
+
+message FrameData {
+  int64 timestamp = 1;
+  int32 width = 2;
+  int32 height = 3;
+  bytes data = 4;
+  FrameFormat format = 5;
+  int32 sequence_number = 6;
+  optional string accessibility_tree = 7;
+  repeated ShortcutInfo discovered_shortcuts = 8;
+}
+
+message ShortcutInfo {
+  string name = 1;
+  string raw_shortcut = 2;
+  repeated string normalized_keys = 3;
+  string command = 4;
+  bool is_single_key = 5;
+}
+
+// Audio control
+message StartAudioRequest {
+  string agent_id = 1;
+  AudioSource source = 2;
+  optional string application_id = 3;
+  AudioConfig config = 4;
+}
+
+message StartAudioResponse {
+  bool success = 1;
+  string audio_id = 2;
+}
+
+message StopAudioRequest {
+  string agent_id = 1;
+  string audio_id = 2;
+}
+
+message StopAudioResponse {
+  bool success = 1;
+}
+
+message StreamAudioRequest {
+  string agent_id = 1;
+  string audio_id = 2;
+}
+
+message AudioData {
+  int64 timestamp = 1;
+  bytes data = 2;
+  AudioFormat format = 3;
+  int32 sample_rate = 4;
+  int32 channels = 5;
+}
+
+// Input injection
+message MouseMoveRequest {
+  string agent_id = 1;
+  int32 x = 2;
+  int32 y = 3;
+  bool relative = 4;
+}
+
+message MouseClickRequest {
+  string agent_id = 1;
+  int32 x = 2;
+  int32 y = 3;
+  MouseButton button = 4;
+  ClickType click_type = 5;
+}
+
+message KeyPressRequest {
+  string agent_id = 1;
+  string key = 2;
+  repeated string modifiers = 3;
+}
+
+message TypeTextRequest {
+  string agent_id = 1;
+  string text = 2;
+  optional int32 delay_ms = 3; // Delay between characters (default: 12ms)
+}
+
+message ScrollRequest {
+  string agent_id = 1;
+  int32 x = 2;  // Mouse position x
+  int32 y = 3;  // Mouse position y
+  int32 delta_x = 4;  // Horizontal scroll amount
+  int32 delta_y = 5;  // Vertical scroll amount
+}
+
+message InputResponse {
+  bool success = 1;
+  optional string error = 2;
+  optional ErrorCode error_code_enum = 3; // Structured error code for programmatic handling
+  
+  // Action validation (NEW in v2.1)
+  optional bool window_changed = 4;     // Did active window change after action?
+  optional bool focus_changed = 5;      // Did focus change?
+  optional string new_window_title = 6; // New window title if changed
+  optional string new_window_id = 7;    // New window ID if changed
+
+  // Telemetry (NEW in v2.2)
+  optional int64 execution_time_ms = 8; // Total time spent executing request
+  optional string request_id = 9;       // Unique identifier for request tracing
+}
+
+// System info
+message SystemInfoRequest {
+  string agent_id = 1;
+}
+
+message SystemInfoResponse {
+  SystemInfo info = 1;
+}
+
+message CapabilitiesRequest {
+  string agent_id = 1;
+}
+
+message CapabilitiesResponse {
+  string display_server = 1;  // "x11", "wayland", "windows", "macos"
+  string input_method = 2;    // "xdotool", "ydotool", "coreevents", etc.
+  string capture_method = 3;  // "scrot", "pipewire", "screencapture", etc.
+  bool supports_wayland = 4;
+  bool supports_x11 = 5;
+  bool supports_press_release = 6;
+  bool supports_scroll = 7;
+  bool supports_a11y = 8;
+  repeated string available_features = 9;
+}
+
+message GetActiveWindowRequest {
+  string agent_id = 1;
+}
+
+message GetActiveWindowResponse {
+  string window_id = 1;
+  string window_title = 2;
+  string app_name = 3;
+  int32 x = 4;
+  int32 y = 5;
+  int32 width = 6;
+  int32 height = 7;
+}
+
+message SystemInfo {
+  string os = 1;
+  string os_version = 2;
+  string arch = 3;
+  string hostname = 4;
+  int32 screen_width = 5;
+  int32 screen_height = 6;
+  repeated Display displays = 7;
+}
+
+message Display {
+  int32 id = 1;
+  string name = 2;
+  int32 width = 3;
+  int32 height = 4;
+  int32 x = 5;
+  int32 y = 6;
+  bool is_primary = 7;
+}
+
+// Configuration
+message CaptureConfig {
+  int32 frame_rate = 1;
+  int32 quality = 2;
+  FrameFormat format = 3;
+}
+
+message AudioConfig {
+  int32 sample_rate = 1;
+  int32 channels = 2;
+  AudioFormat format = 3;
+}
+
+// Enums
+enum CaptureMode {
+  DESKTOP = 0;
+  WINDOW = 1;
+  REGION = 2;
+}
+
+enum FrameFormat {
+  RGBA = 0;
+  JPEG = 1;
+  PNG = 2;
+  H264 = 3;
+}
+
+enum AudioSource {
+  SYSTEM = 0;
+  APPLICATION = 1;
+  MICROPHONE = 2;
+}
+
+enum AudioFormat {
+  PCM = 0;
+  OPUS = 1;
+  AAC = 2;
+}
+
+enum MouseButton {
+  LEFT = 0;
+  RIGHT = 1;
+  MIDDLE = 2;
+}
+
+enum ClickType {
+  SINGLE = 0;
+  DOUBLE = 1;
+  PRESS = 2;
+  RELEASE = 3;
+}
+
+// Standardized error codes (NEW in v2.2)
+enum ErrorCode {
+  SUCCESS = 0;
+  INVALID_COORDINATES = 1;
+  WINDOW_NOT_FOUND = 2;
+  DISPLAY_SERVER_ERROR = 3;
+  PERMISSION_DENIED = 4;
+  TIMEOUT = 5;
+  APP_NOT_FOUND = 6;
+  NETWORK_ERROR = 7;
+  INVALID_INPUT = 8;
+  RESOURCE_BUSY = 9;
+  NOT_IMPLEMENTED = 10;
+}
+
+// OSWorld evaluator support messages
+message GetWindowListRequest {
+  string agent_id = 1;
+}
+
+message GetWindowListResponse {
+  repeated string windows = 1;  // Deprecated: use window_info instead
+  repeated WindowInfo window_info = 2;  // NEW in v2.1: Rich window context
+}
+
+// Rich window information (NEW in v2.1)
+message WindowInfo {
+  string window_id = 1;        // Unique window identifier
+  string title = 2;            // Window title
+  string app_class = 3;        // Application class name
+  Rectangle geometry = 4;      // Window position and size
+  bool is_focused = 5;         // Is this the active window?
+  bool is_minimized = 6;       // Is window minimized?
+  bool is_maximized = 7;       // Is window maximized?
+  int32 desktop = 8;           // Which desktop/workspace (0-indexed)
+}
+
+message Rectangle {
+  int32 x = 1;
+  int32 y = 2;
+  int32 width = 3;
+  int32 height = 4;
+}
+
+message GetProcessListRequest {
+  string agent_id = 1;
+}
+
+message GetProcessListResponse {
+  repeated string processes = 1;
+}
+
+message GetBrowserTabsRequest {
+  string agent_id = 1;
+  string browser = 2;  // "chrome", "safari", "firefox"
+}
+
+message GetBrowserTabsResponse {
+  repeated string tabs = 1;
+}
+
+message ListFilesRequest {
+  string agent_id = 1;
+  string directory = 2;
+}
+
+message ListFilesResponse {
+  repeated string files = 1;
+}
+
+message GetClipboardRequest {
+  string agent_id = 1;
+}
+
+message GetClipboardResponse {
+  bool success = 1;
+  string content = 2;
+  string content_type = 3;  // "text", "image", "html" (NEW in v2.4)
+  int64 retrieved_at = 4;   // NEW in v2.4
+  optional string error = 5;  // NEW in v2.4
+}
+
+// Health monitoring (NEW in v2.2)
+message HealthCheckRequest {
+  string agent_id = 1;
+}
+
+message HealthCheckResponse {
+  bool healthy = 1;
+  string status = 2;               // "healthy", "degraded", or "unhealthy"
+  int32 active_connections = 3;    // Current active connections to bridge
+  float cpu_usage_percent = 4;     // Bridge process CPU usage
+  int64 memory_usage_mb = 5;       // Bridge process memory usage in MB
+  string version = 6;              // Bridge version string
+  int64 uptime_seconds = 7;        // Seconds since bridge start
+  int64 total_requests = 8;        // Total RPC requests handled
+  int64 failed_requests = 9;       // Total failed RPC requests
+  float avg_response_time_ms = 10; // Average RPC response time
+  // NEW in v2.3: Cache statistics
+  float cache_hit_rate = 11;       // Frame cache hit rate (0.0-1.0)
+  int64 cache_hits = 12;           // Total cache hits
+  int64 cache_misses = 13;         // Total cache misses
+  int64 cache_entries = 14;        // Current cached frames
+  int64 cache_memory_mb = 15;      // Estimated cache memory usage in MB
+}
+
+// Application control
+message LaunchApplicationRequest {
+  string agent_id = 1;
+  string app_name = 2;  // e.g. "calculator", "terminal", "files", "firefox"
+}
+
+message LaunchApplicationResponse {
+  bool success = 1;
+  string error = 2;
+}
+
+message CloseApplicationRequest {
+  string agent_id = 1;
+  string app_name = 2;  // Window title or app name to close (e.g. "Calculator", "axonhub Calculator")
+}
+
+message CloseApplicationResponse {
+  bool success = 1;
+  string error = 2;
+}
+
+// Screenshot request
+message TakeScreenshotRequest {
+  string agent_id = 1;
+  string save_path = 2;  // Optional path to save screenshot
+}
+
+// Screenshot response
+message TakeScreenshotResponse {
+  bool success = 1;
+  string file_path = 2;  // Path where screenshot was saved
+  string error = 3;
+  bytes image_data = 4;  // Optional: Include image data in response
+}
+
+// NEW in v2.1: Focused window screenshot (token-efficient)
+message GetFocusedWindowScreenshotRequest {
+  string agent_id = 1;
+  bool include_ocr = 2;  // Include OCR text extraction
+}
+
+message GetFocusedWindowScreenshotResponse {
+  bool success = 1;
+  bytes image_data = 2;  // PNG encoded screenshot of focused window only
+  int32 width = 3;
+  int32 height = 4;
+  string window_title = 5;
+  string window_id = 6;
+  optional string error = 7;
+  repeated TextElement text_elements = 8;  // OCR results if requested
+}
+
+// NEW in v2.1: Accessible UI elements detection
+message GetAccessibleElementsRequest {
+  string agent_id = 1;
+  optional string window_id = 2;  // Specific window, or focused if not provided
+}
+
+message GetAccessibleElementsResponse {
+  bool success = 1;
+  repeated UIElement elements = 2;
+  string window_id = 3;
+  string window_title = 4;
+  optional string error = 5;
+}
+
+message UIElement {
+  string id = 1;              // Element identifier
+  string type = 2;            // "button", "text_field", "label", "menu", "checkbox", etc.
+  string text = 3;            // Visible text or label
+  Rectangle bounds = 4;       // Element position and size
+  bool is_enabled = 5;        // Can it be interacted with?
+  bool is_focused = 6;        // Does it have focus?
+  optional string role = 7;   // AT-SPI role if available
+  optional string states = 8; // Element states (e.g., "checked", "expanded")
+}
+
+// NEW in v2.1: OCR text extraction
+message ExtractTextRequest {
+  string agent_id = 1;
+  optional bytes image_data = 2;  // Provide image, or use current screen if not provided
+}
+
+message ExtractTextResponse {
+  bool success = 1;
+  repeated TextElement text_elements = 2;
+  optional string error = 3;
+}
+
+message TextElement {
+  string text = 1;            // Extracted text
+  Rectangle bounds = 2;       // Text bounding box
+  float confidence = 3;       // OCR confidence (0.0 - 1.0)
+}
+
+// NEW in v2.4: Batch operations
+message Operation {
+  oneof op {
+    MouseMoveRequest mouse_move = 1;
+    MouseClickRequest mouse_click = 2;
+    KeyPressRequest key_press = 3;
+    ScrollRequest scroll = 4;
+    TypeTextRequest type_text = 5;
+  }
+}
+
+message BatchRequest {
+  string agent_id = 1;
+  repeated Operation operations = 2;
+  bool stop_on_error = 3;  // Stop executing if any operation fails
+}
+
+message OperationResult {
+  bool success = 1;
+  optional string error = 2;
+  optional ErrorCode error_code = 3;
+  int64 execution_time_ms = 4;
+  optional string request_id = 5;
+}
+
+message BatchResponse {
+  repeated OperationResult results = 1;
+  int32 success_count = 2;
+  int32 failure_count = 3;
+  int64 total_time_ms = 4;
+}
+
+// NEW in v2.4: Clipboard operations
+message SetClipboardRequest {
+  string agent_id = 1;
+  string content = 2;
+  string content_type = 3;  // "text", "image", "html"
+}
+
+message SetClipboardResponse {
+  bool success = 1;
+  optional string error = 2;
+  int64 set_at = 3;
+}
+
+// NEW in v2.4: Differential frames
+message DiffRegion {
+  int32 x = 1;
+  int32 y = 2;
+  int32 width = 3;
+  int32 height = 4;
+  bytes pixel_data = 5;
+}
+
+message DiffFrame {
+  string base_frame_hash = 1;      // Hash of reference frame
+  repeated DiffRegion regions = 2;  // Changed regions
+  int64 total_changed_pixels = 3;
+  int32 changed_percent = 4;       // % of frame changed (0-100)
+}
+
+// NEW in v3.1: Volume control
+message GetVolumeRequest {
+  string agent_id = 1;
+}
+
+message GetVolumeResponse {
+  float level = 1;                  // 0.0-1.0
+  bool is_muted = 2;
+  string method_used = 3;           // "command" or "keyboard"
+  int64 timestamp = 4;
+}
+
+message SetVolumeRequest {
+  string agent_id = 1;
+  float level = 2;                  // 0.0-1.0
+}
+
+message SetVolumeResponse {
+  bool success = 1;
+  float actual_level = 2;           // Level after setting
+  string method_used = 3;           // "command" or "keyboard"
+  optional string error = 4;
+  int64 timestamp = 5;
+}
+
+message MuteVolumeRequest {
+  string agent_id = 1;
+  bool muted = 2;
+}
+
+message MuteVolumeResponse {
+  bool success = 1;
+  bool is_muted = 2;
+  string method_used = 3;           // "command" or "keyboard"
+  optional string error = 4;
+  int64 timestamp = 5;
+}
+
+// NEW in v3.1: Brightness control
+message GetBrightnessRequest {
+  string agent_id = 1;
+}
+
+message GetBrightnessResponse {
+  float level = 1;                  // 0.0-1.0
+  string method_used = 2;           // "command" or "keyboard"
+  int64 timestamp = 3;
+}
+
+message SetBrightnessRequest {
+  string agent_id = 1;
+  float level = 2;                  // 0.0-1.0
+}
+
+message SetBrightnessResponse {
+  bool success = 1;
+  float actual_level = 2;           // Level after setting
+  string method_used = 3;           // "command" or "keyboard"
+  optional string error = 4;
+  int64 timestamp = 5;
+}
+
+// NEW in v3.1: Media control
+message MediaPlayPauseRequest {
+  string agent_id = 1;
+}
+
+message MediaPlayPauseResponse {
+  bool success = 1;
+  string method_used = 2;           // "command" or "keyboard"
+  optional string error = 3;
+  int64 timestamp = 4;
+}
+
+message MediaNextRequest {
+  string agent_id = 1;
+}
+
+message MediaNextResponse {
+  bool success = 1;
+  string method_used = 2;
+  optional string error = 3;
+  int64 timestamp = 4;
+}
+
+message MediaPreviousRequest {
+  string agent_id = 1;
+}
+
+message MediaPreviousResponse {
+  bool success = 1;
+  string method_used = 2;
+  optional string error = 3;
+  int64 timestamp = 4;
+}
+
+message MediaStopRequest {
+  string agent_id = 1;
+}
+
+message MediaStopResponse {
+  bool success = 1;
+  string method_used = 2;
+  optional string error = 3;
+  int64 timestamp = 4;
+}
