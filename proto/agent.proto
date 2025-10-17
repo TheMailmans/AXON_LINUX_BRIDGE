@@ -65,6 +65,14 @@ service DesktopAgent {
   rpc GetVolume(GetVolumeRequest) returns (GetVolumeResponse);
   rpc SetVolume(SetVolumeRequest) returns (SetVolumeResponse);
   rpc MuteVolume(MuteVolumeRequest) returns (MuteVolumeResponse);
+  
+  rpc GetBrightness(GetBrightnessRequest) returns (GetBrightnessResponse);
+  rpc SetBrightness(SetBrightnessRequest) returns (SetBrightnessResponse);
+  
+  rpc MediaPlayPause(MediaPlayPauseRequest) returns (MediaPlayPauseResponse);
+  rpc MediaNext(MediaNextRequest) returns (MediaNextResponse);
+  rpc MediaPrevious(MediaPreviousRequest) returns (MediaPreviousResponse);
+  rpc MediaStop(MediaStopRequest) returns (MediaStopResponse);
 }
 
 // Connection
@@ -655,4 +663,73 @@ message MuteVolumeResponse {
   string method_used = 3;           // "command" or "keyboard"
   optional string error = 4;
   int64 timestamp = 5;
+}
+
+// NEW in v3.1: Brightness control
+message GetBrightnessRequest {
+  string agent_id = 1;
+}
+
+message GetBrightnessResponse {
+  float level = 1;                  // 0.0-1.0
+  string method_used = 2;           // "command" or "keyboard"
+  int64 timestamp = 3;
+}
+
+message SetBrightnessRequest {
+  string agent_id = 1;
+  float level = 2;                  // 0.0-1.0
+}
+
+message SetBrightnessResponse {
+  bool success = 1;
+  float actual_level = 2;           // Level after setting
+  string method_used = 3;           // "command" or "keyboard"
+  optional string error = 4;
+  int64 timestamp = 5;
+}
+
+// NEW in v3.1: Media control
+message MediaPlayPauseRequest {
+  string agent_id = 1;
+}
+
+message MediaPlayPauseResponse {
+  bool success = 1;
+  string method_used = 2;           // "command" or "keyboard"
+  optional string error = 3;
+  int64 timestamp = 4;
+}
+
+message MediaNextRequest {
+  string agent_id = 1;
+}
+
+message MediaNextResponse {
+  bool success = 1;
+  string method_used = 2;
+  optional string error = 3;
+  int64 timestamp = 4;
+}
+
+message MediaPreviousRequest {
+  string agent_id = 1;
+}
+
+message MediaPreviousResponse {
+  bool success = 1;
+  string method_used = 2;
+  optional string error = 3;
+  int64 timestamp = 4;
+}
+
+message MediaStopRequest {
+  string agent_id = 1;
+}
+
+message MediaStopResponse {
+  bool success = 1;
+  string method_used = 2;
+  optional string error = 3;
+  int64 timestamp = 4;
 }

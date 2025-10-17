@@ -2286,6 +2286,257 @@ impl DesktopAgent for DesktopAgentService {
             }
         }
     }
+
+    // NEW in v3.1: Brightness control - Get current brightness
+    async fn get_brightness(
+        &self,
+        request: Request<GetBrightnessRequest>,
+    ) -> Result<Response<GetBrightnessResponse>, Status> {
+        let req = request.into_inner();
+        let (metrics, request_id) = self.begin_request("get_brightness");
+        
+        info!("[{}] GetBrightness requested", request_id);
+
+        let manager = SystemControlManager::new()
+            .map_err(|e| {
+                warn!("[{}] Failed to create system control manager: {}", request_id, e);
+                Status::internal("Failed to initialize system control")
+            })?;
+
+        let brightness_controller = manager.brightness_control();
+        
+        match brightness_controller.get_brightness() {
+            Ok(level) => {
+                info!("[{}] Got brightness: {}", request_id, level);
+                self.end_success("get_brightness", &request_id, &metrics);
+                
+                Ok(Response::new(GetBrightnessResponse {
+                    level,
+                    method_used: "command".to_string(),
+                    timestamp: std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_millis() as i64,
+                }))
+            }
+            Err(e) => {
+                warn!("[{}] Failed to get brightness: {}", request_id, e);
+                self.end_failure("get_brightness", &request_id, &metrics, &e.to_string());
+                Err(Status::internal(format!("Failed to get brightness: {}", e)))
+            }
+        }
+    }
+
+    // NEW in v3.1: Brightness control - Set brightness
+    async fn set_brightness(
+        &self,
+        request: Request<SetBrightnessRequest>,
+    ) -> Result<Response<SetBrightnessResponse>, Status> {
+        let req = request.into_inner();
+        let (metrics, request_id) = self.begin_request("set_brightness");
+        
+        info!("[{}] SetBrightness requested: {}", request_id, req.level);
+
+        if !(0.0..=1.0).contains(&req.level) {
+            warn!("[{}] Invalid brightness level: {}", request_id, req.level);
+            return Err(Status::invalid_argument("Brightness level must be between 0.0 and 1.0"));
+        }
+
+        let manager = SystemControlManager::new()
+            .map_err(|e| {
+                warn!("[{}] Failed to create system control manager: {}", request_id, e);
+                Status::internal("Failed to initialize system control")
+            })?;
+
+        let brightness_controller = manager.brightness_control();
+        
+        match brightness_controller.set_brightness(req.level) {
+            Ok(_) => {
+                info!("[{}] Brightness set to {}", request_id, req.level);
+                self.end_success("set_brightness", &request_id, &metrics);
+                
+                Ok(Response::new(SetBrightnessResponse {
+                    success: true,
+                    actual_level: req.level,
+                    method_used: "command".to_string(),
+                    error: None,
+                    timestamp: std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_millis() as i64,
+                }))
+            }
+            Err(e) => {
+                warn!("[{}] Failed to set brightness: {}", request_id, e);
+                self.end_failure("set_brightness", &request_id, &metrics, &e.to_string());
+                Err(Status::internal(format!("Failed to set brightness: {}", e)))
+            }
+        }
+    }
+
+    // NEW in v3.1: Media control - Play/Pause
+    async fn media_play_pause(
+        &self,
+        request: Request<MediaPlayPauseRequest>,
+    ) -> Result<Response<MediaPlayPauseResponse>, Status> {
+        let req = request.into_inner();
+        let (metrics, request_id) = self.begin_request("media_play_pause");
+        
+        info!("[{}] MediaPlayPause requested", request_id);
+
+        let manager = SystemControlManager::new()
+            .map_err(|e| {
+                warn!("[{}] Failed to create system control manager: {}", request_id, e);
+                Status::internal("Failed to initialize system control")
+            })?;
+
+        let media_controller = manager.media_control();
+        
+        match media_controller.play_pause() {
+            Ok(_) => {
+                info!("[{}] Media play/pause executed", request_id);
+                self.end_success("media_play_pause", &request_id, &metrics);
+                
+                Ok(Response::new(MediaPlayPauseResponse {
+                    success: true,
+                    method_used: "command".to_string(),
+                    error: None,
+                    timestamp: std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_millis() as i64,
+                }))
+            }
+            Err(e) => {
+                warn!("[{}] Failed to execute play/pause: {}", request_id, e);
+                self.end_failure("media_play_pause", &request_id, &metrics, &e.to_string());
+                Err(Status::internal(format!("Failed to execute play/pause: {}", e)))
+            }
+        }
+    }
+
+    // NEW in v3.1: Media control - Next track
+    async fn media_next(
+        &self,
+        request: Request<MediaNextRequest>,
+    ) -> Result<Response<MediaNextResponse>, Status> {
+        let req = request.into_inner();
+        let (metrics, request_id) = self.begin_request("media_next");
+        
+        info!("[{}] MediaNext requested", request_id);
+
+        let manager = SystemControlManager::new()
+            .map_err(|e| {
+                warn!("[{}] Failed to create system control manager: {}", request_id, e);
+                Status::internal("Failed to initialize system control")
+            })?;
+
+        let media_controller = manager.media_control();
+        
+        match media_controller.next() {
+            Ok(_) => {
+                info!("[{}] Media next executed", request_id);
+                self.end_success("media_next", &request_id, &metrics);
+                
+                Ok(Response::new(MediaNextResponse {
+                    success: true,
+                    method_used: "command".to_string(),
+                    error: None,
+                    timestamp: std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_millis() as i64,
+                }))
+            }
+            Err(e) => {
+                warn!("[{}] Failed to execute next: {}", request_id, e);
+                self.end_failure("media_next", &request_id, &metrics, &e.to_string());
+                Err(Status::internal(format!("Failed to execute next: {}", e)))
+            }
+        }
+    }
+
+    // NEW in v3.1: Media control - Previous track
+    async fn media_previous(
+        &self,
+        request: Request<MediaPreviousRequest>,
+    ) -> Result<Response<MediaPreviousResponse>, Status> {
+        let req = request.into_inner();
+        let (metrics, request_id) = self.begin_request("media_previous");
+        
+        info!("[{}] MediaPrevious requested", request_id);
+
+        let manager = SystemControlManager::new()
+            .map_err(|e| {
+                warn!("[{}] Failed to create system control manager: {}", request_id, e);
+                Status::internal("Failed to initialize system control")
+            })?;
+
+        let media_controller = manager.media_control();
+        
+        match media_controller.previous() {
+            Ok(_) => {
+                info!("[{}] Media previous executed", request_id);
+                self.end_success("media_previous", &request_id, &metrics);
+                
+                Ok(Response::new(MediaPreviousResponse {
+                    success: true,
+                    method_used: "command".to_string(),
+                    error: None,
+                    timestamp: std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_millis() as i64,
+                }))
+            }
+            Err(e) => {
+                warn!("[{}] Failed to execute previous: {}", request_id, e);
+                self.end_failure("media_previous", &request_id, &metrics, &e.to_string());
+                Err(Status::internal(format!("Failed to execute previous: {}", e)))
+            }
+        }
+    }
+
+    // NEW in v3.1: Media control - Stop playback
+    async fn media_stop(
+        &self,
+        request: Request<MediaStopRequest>,
+    ) -> Result<Response<MediaStopResponse>, Status> {
+        let req = request.into_inner();
+        let (metrics, request_id) = self.begin_request("media_stop");
+        
+        info!("[{}] MediaStop requested", request_id);
+
+        let manager = SystemControlManager::new()
+            .map_err(|e| {
+                warn!("[{}] Failed to create system control manager: {}", request_id, e);
+                Status::internal("Failed to initialize system control")
+            })?;
+
+        let media_controller = manager.media_control();
+        
+        match media_controller.stop() {
+            Ok(_) => {
+                info!("[{}] Media stop executed", request_id);
+                self.end_success("media_stop", &request_id, &metrics);
+                
+                Ok(Response::new(MediaStopResponse {
+                    success: true,
+                    method_used: "command".to_string(),
+                    error: None,
+                    timestamp: std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_millis() as i64,
+                }))
+            }
+            Err(e) => {
+                warn!("[{}] Failed to execute stop: {}", request_id, e);
+                self.end_failure("media_stop", &request_id, &metrics, &e.to_string());
+                Err(Status::internal(format!("Failed to execute stop: {}", e)))
+            }
+        }
+    }
 }
 
 /// Get current active window information (Linux only)
