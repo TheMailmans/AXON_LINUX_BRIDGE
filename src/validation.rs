@@ -153,3 +153,149 @@ mod tests {
         assert!(validate_window_id("xyz").is_err());
     }
 }
+
+/// Batch operation validation configuration (NEW in v2.4)
+#[derive(Debug, Clone, Copy)]
+pub struct BatchValidationConfig {
+    /// Maximum operations per batch
+    pub max_operations: usize,
+    /// Maximum clipboard content size in bytes
+    pub max_clipboard_size: usize,
+}
+
+impl Default for BatchValidationConfig {
+    fn default() -> Self {
+        Self {
+            max_operations: 100,
+            max_clipboard_size: 10 * 1024 * 1024, // 10MB
+        }
+    }
+}
+
+/// Validate batch operation count (NEW in v2.4)
+pub fn validate_batch_count(count: usize, config: BatchValidationConfig) -> Result<()> {
+    if count == 0 {
+        bail!("Batch cannot be empty");
+    }
+    if count > config.max_operations {
+        bail!(
+            "Batch size {} exceeds maximum {}",
+            count,
+            config.max_operations
+        );
+    }
+    Ok(())
+}
+
+/// Validate clipboard content size (NEW in v2.4)
+pub fn validate_clipboard_size(content: &str, config: BatchValidationConfig) -> Result<()> {
+    let size_bytes = content.as_bytes().len();
+
+    if size_bytes == 0 {
+        bail!("Clipboard content cannot be empty");
+    }
+
+    if size_bytes > config.max_clipboard_size {
+        bail!(
+            "Clipboard content size {} bytes exceeds maximum {} bytes",
+            size_bytes,
+            config.max_clipboard_size
+        );
+    }
+
+    Ok(())
+}
+
+/// Validate clipboard content type (NEW in v2.4)
+pub fn validate_clipboard_content_type(content_type: &str) -> Result<()> {
+    match content_type {
+        "text" | "image" | "html" => Ok(()),
+        _ => bail!("Invalid clipboard content type: {}", content_type),
+    }
+}
+
+/// Comprehensive clipboard validation (NEW in v2.4)
+pub fn validate_clipboard(
+    content: &str,
+    content_type: &str,
+    config: BatchValidationConfig,
+) -> Result<()> {
+    validate_clipboard_size(content, config)?;
+    validate_clipboard_content_type(content_type)?;
+    Ok(())
+}
+
+#[cfg(test)]
+mod batch_validation_tests {
+    use super::*;
+
+    #[test]
+    fn test_batch_validation_config_default() {
+        let config = BatchValidationConfig::default();
+        assert_eq!(config.max_operations, 100);
+        assert_eq!(config.max_clipboard_size, 10 * 1024 * 1024);
+    }
+
+    #[test]
+    fn test_validate_batch_count_valid() {
+        let config = BatchValidationConfig::default();
+        assert!(validate_batch_count(1, config).is_ok());
+        assert!(validate_batch_count(50, config).is_ok());
+        assert!(validate_batch_count(100, config).is_ok());
+    }
+
+    #[test]
+    fn test_validate_batch_count_empty() {
+        let config = BatchValidationConfig::default();
+        assert!(validate_batch_count(0, config).is_err());
+    }
+
+    #[test]
+    fn test_validate_batch_count_exceeds_max() {
+        let config = BatchValidationConfig::default();
+        assert!(validate_batch_count(101, config).is_err());
+    }
+
+    #[test]
+    fn test_validate_clipboard_size_valid() {
+        let config = BatchValidationConfig::default();
+        assert!(validate_clipboard_size("hello", config).is_ok());
+    }
+
+    #[test]
+    fn test_validate_clipboard_size_empty() {
+        let config = BatchValidationConfig::default();
+        assert!(validate_clipboard_size("", config).is_err());
+    }
+
+    #[test]
+    fn test_validate_clipboard_size_exceeds_max() {
+        let config = BatchValidationConfig {
+            max_clipboard_size: 100,
+            ..Default::default()
+        };
+        let large_content = "x".repeat(101);
+        assert!(validate_clipboard_size(&large_content, config).is_err());
+    }
+
+    #[test]
+    fn test_validate_clipboard_content_type_valid() {
+        assert!(validate_clipboard_content_type("text").is_ok());
+        assert!(validate_clipboard_content_type("image").is_ok());
+        assert!(validate_clipboard_content_type("html").is_ok());
+    }
+
+    #[test]
+    fn test_validate_clipboard_content_type_invalid() {
+        assert!(validate_clipboard_content_type("json").is_err());
+        assert!(validate_clipboard_content_type("invalid").is_err());
+    }
+
+    #[test]
+    fn test_validate_clipboard_comprehensive() {
+        let config = BatchValidationConfig::default();
+        assert!(validate_clipboard("hello", "text", config).is_ok());
+        assert!(validate_clipboard("", "text", config).is_err());
+        assert!(validate_clipboard("hello", "invalid", config).is_err());
+    }
+}
