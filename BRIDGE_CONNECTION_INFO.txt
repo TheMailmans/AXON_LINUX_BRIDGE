@@ -1,11 +1,11 @@
 ╔════════════════════════════════════════════════════════════════════════════╗
 ║                                                                            ║
-║             🚀 AXON BRIDGE v3.0 - RUNNING & READY FOR CONNECTIONS 🚀      ║
+║             🚀 AXON BRIDGE v3.1 - RUNNING & READY FOR CONNECTIONS 🚀      ║
 ║                                                                            ║
 ╚════════════════════════════════════════════════════════════════════════════╝
 
 STATUS: ✅ RUNNING
-VERSION: v3.0.0 (Production Ready)
+VERSION: v3.1.0 (Production Ready - System Control Framework)
 PROCESS ID: 174997
 SESSION: production-v3-session
 
@@ -170,6 +170,23 @@ Health & Monitoring:
   - GetClipboard (enhanced with content types)
   - SetClipboardContent (multi-platform support)
 
+🎆 NEW IN v3.1 - SYSTEM CONTROL FRAMEWORK:
+  
+  Volume Control:
+    - GetVolume (read current volume 0.0-1.0)
+    - SetVolume (set volume with validation)
+    - MuteVolume (mute/unmute system audio)
+  
+  Brightness Control:
+    - GetBrightness (read display brightness 0.0-1.0)
+    - SetBrightness (set brightness with validation)
+  
+  Media Control:
+    - MediaPlayPause (toggle play/pause)
+    - MediaNext (skip to next track)
+    - MediaPrevious (go to previous track)
+    - MediaStop (stop playback)
+
 ================================================================================
                         PROTO DEFINITION FILES
 ================================================================================
@@ -304,14 +321,30 @@ Documentation:
   - V3.0_COMPLETE_RELEASE_NOTES.md
   - IMPLEMENTATION_COMPLETE_SUMMARY.md
   - BUILD_AND_DEPLOY_STATUS.txt
+  - SYSTEM_CONTROL_ARCHITECTURE.md (NEW in v3.1)
+  - VOLUME_CONTROL_GUIDE.md
+  - BRIGHTNESS_CONTROL_GUIDE.md
+  - MEDIA_CONTROL_GUIDE.md
 
 API Reference:    See proto/agent.proto
 Architecture:     See docs in repository
 Troubleshooting:  Check bridge_v3.log
 
+System Control Features:
+  See SYSTEM_CONTROL_ARCHITECTURE.md for full framework documentation
+  Volume, Brightness, and Media control available on all platforms
+  Hybrid execution with command-line tools and keyboard fallback
+
 ================================================================================
 
-✅ BRIDGE v3.0 IS RUNNING AND READY FOR CONNECTIONS
+✅ BRIDGE v3.1 IS RUNNING AND READY FOR CONNECTIONS
+
+New System Control Features:
+  ✓ Volume Control (get, set, mute)
+  ✓ Brightness Control (get, set)
+  ✓ Media Control (play, pause, next, previous, stop)
+  ✓ Cross-platform (Linux, macOS, Windows)
+  ✓ Hybrid execution (command + keyboard fallback)
 
 Connect your Hub/Core to: 192.168.64.3:50051
 
