@@ -48,6 +48,11 @@ service DesktopAgent {
   
   // Screenshot capture
   rpc TakeScreenshot(TakeScreenshotRequest) returns (TakeScreenshotResponse);
+  
+  // NEW in v2.1: Smart screenshot and UI intelligence
+  rpc GetFocusedWindowScreenshot(GetFocusedWindowScreenshotRequest) returns (GetFocusedWindowScreenshotResponse);
+  rpc GetAccessibleElements(GetAccessibleElementsRequest) returns (GetAccessibleElementsResponse);
+  rpc ExtractTextFromScreen(ExtractTextRequest) returns (ExtractTextResponse);
 }
 
 // Connection
@@ -211,6 +216,12 @@ message InputResponse {
   bool success = 1;
   optional string error = 2;
   optional string error_code = 3; // Structured error code (e.g., "NO_FOCUS", "WINDOW_NOT_FOUND")
+  
+  // Action validation (NEW in v2.1)
+  optional bool window_changed = 4;     // Did active window change after action?
+  optional bool focus_changed = 5;      // Did focus change?
+  optional string new_window_title = 6; // New window title if changed
+  optional string new_window_id = 7;    // New window ID if changed
 }
 
 // System info
@@ -330,7 +341,27 @@ message GetWindowListRequest {
 }
 
 message GetWindowListResponse {
-  repeated string windows = 1;
+  repeated string windows = 1;  // Deprecated: use window_info instead
+  repeated WindowInfo window_info = 2;  // NEW in v2.1: Rich window context
+}
+
+// Rich window information (NEW in v2.1)
+message WindowInfo {
+  string window_id = 1;        // Unique window identifier
+  string title = 2;            // Window title
+  string app_class = 3;        // Application class name
+  Rectangle geometry = 4;      // Window position and size
+  bool is_focused = 5;         // Is this the active window?
+  bool is_minimized = 6;       // Is window minimized?
+  bool is_maximized = 7;       // Is window maximized?
+  int32 desktop = 8;           // Which desktop/workspace (0-indexed)
+}
+
+message Rectangle {
+  int32 x = 1;
+  int32 y = 2;
+  int32 width = 3;
+  int32 height = 4;
 }
 
 message GetProcessListRequest {
@@ -400,4 +431,64 @@ message TakeScreenshotResponse {
   string file_path = 2;  // Path where screenshot was saved
   string error = 3;
   bytes image_data = 4;  // Optional: Include image data in response
+}
+
+// NEW in v2.1: Focused window screenshot (token-efficient)
+message GetFocusedWindowScreenshotRequest {
+  string agent_id = 1;
+  bool include_ocr = 2;  // Include OCR text extraction
+}
+
+message GetFocusedWindowScreenshotResponse {
+  bool success = 1;
+  bytes image_data = 2;  // PNG encoded screenshot of focused window only
+  int32 width = 3;
+  int32 height = 4;
+  string window_title = 5;
+  string window_id = 6;
+  optional string error = 7;
+  repeated TextElement text_elements = 8;  // OCR results if requested
+}
+
+// NEW in v2.1: Accessible UI elements detection
+message GetAccessibleElementsRequest {
+  string agent_id = 1;
+  optional string window_id = 2;  // Specific window, or focused if not provided
+}
+
+message GetAccessibleElementsResponse {
+  bool success = 1;
+  repeated UIElement elements = 2;
+  string window_id = 3;
+  string window_title = 4;
+  optional string error = 5;
+}
+
+message UIElement {
+  string id = 1;              // Element identifier
+  string type = 2;            // "button", "text_field", "label", "menu", "checkbox", etc.
+  string text = 3;            // Visible text or label
+  Rectangle bounds = 4;       // Element position and size
+  bool is_enabled = 5;        // Can it be interacted with?
+  bool is_focused = 6;        // Does it have focus?
+  optional string role = 7;   // AT-SPI role if available
+  optional string states = 8; // Element states (e.g., "checked", "expanded")
+}
+
+// NEW in v2.1: OCR text extraction
+message ExtractTextRequest {
+  string agent_id = 1;
+  optional bytes image_data = 2;  // Provide image, or use current screen if not provided
+}
+
+message ExtractTextResponse {
+  bool success = 1;
+  repeated TextElement text_elements = 2;
+  optional string error = 3;
+}
+
+message TextElement {
+  string text = 1;            // Extracted text
+  Rectangle bounds = 2;       // Text bounding box
+  float confidence = 3;       // OCR confidence (0.0 - 1.0)
 }

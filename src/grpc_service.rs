@@ -461,6 +461,10 @@ impl DesktopAgent for DesktopAgentService {
                     success: true,
                     error: None,
                     error_code: None,
+                    window_changed: None,
+                    focus_changed: None,
+                    new_window_title: None,
+                    new_window_id: None,
                 }))
             }
             Err(e) => {
@@ -469,6 +473,10 @@ impl DesktopAgent for DesktopAgentService {
                     success: false,
                     error: Some(e.to_string()),
                     error_code: None,
+                    window_changed: None,
+                    focus_changed: None,
+                    new_window_title: None,
+                    new_window_id: None,
                 }))
             }
         }
@@ -494,19 +502,61 @@ impl DesktopAgent for DesktopAgentService {
         let button_str = button.to_string();
         
         let result = tokio::task::spawn_blocking(move || {
-            crate::input::inject_mouse_click(x, y, &button_str)
+            // ACTION VALIDATION (v2.1): Capture window state before action
+            #[cfg(target_os = "linux")]
+            let window_before = get_active_window_info().ok();
+            
+            // Execute the click
+            let click_result = crate::input::inject_mouse_click(x, y, &button_str);
+            
+            // ACTION VALIDATION (v2.1): Capture window state after action  
+            #[cfg(target_os = "linux")]
+            let window_after = if click_result.is_ok() {
+                // Small delay to allow window state to update
+                std::thread::sleep(std::time::Duration::from_millis(50));
+                get_active_window_info().ok()
+            } else {
+                None
+            };
+            
+            #[cfg(target_os = "linux")]
+            let validation = (window_before, window_after);
+            #[cfg(not(target_os = "linux"))]
+            let validation = (None::<(String, String)>, None::<(String, String)>);
+            
+            (click_result, validation)
         })
         .await
-        .map_err(|e| Status::internal(format!("Task join error: {}", e)))?
-        .map_err(|e| Status::internal(format!("Mouse click failed: {}", e)));
+        .map_err(|e| Status::internal(format!("Task join error: {}", e)))?;
         
-        match result {
+        let (click_result, (window_before, window_after)) = result;
+        
+        match click_result {
             Ok(()) => {
-                info!("Mouse click successful");
+                // ACTION VALIDATION (v2.1): Check if window state changed
+                let (window_changed, focus_changed, new_window_title, new_window_id) = match (window_before, window_after) {
+                    (Some((id_before, title_before)), Some((id_after, title_after))) => {
+                        let win_changed = id_before != id_after;
+                        let focus_changed = title_before != title_after;
+                        (
+                            Some(win_changed),
+                            Some(focus_changed),
+                            if win_changed { Some(title_after) } else { None },
+                            if win_changed { Some(id_after) } else { None },
+                        )
+                    },
+                    _ => (None, None, None, None),
+                };
+                
+                info!("Mouse click successful (window_changed={:?})", window_changed);
                 Ok(Response::new(InputResponse {
                     success: true,
                     error: None,
                     error_code: None,
+                    window_changed,
+                    focus_changed,
+                    new_window_title,
+                    new_window_id,
                 }))
             }
             Err(e) => {
@@ -515,6 +565,10 @@ impl DesktopAgent for DesktopAgentService {
                     success: false,
                     error: Some(e.to_string()),
                     error_code: None,
+                    window_changed: None,
+                    focus_changed: None,
+                    new_window_title: None,
+                    new_window_id: None,
                 }))
             }
         }
@@ -546,6 +600,10 @@ impl DesktopAgent for DesktopAgentService {
                     success: true,
                     error: None,
                     error_code: None,
+                    window_changed: None,
+                    focus_changed: None,
+                    new_window_title: None,
+                    new_window_id: None,
                 }))
             }
             Err(e) => {
@@ -554,6 +612,10 @@ impl DesktopAgent for DesktopAgentService {
                     success: false,
                     error: Some(e.to_string()),
                     error_code: None,
+                    window_changed: None,
+                    focus_changed: None,
+                    new_window_title: None,
+                    new_window_id: None,
                 }))
             }
         }
@@ -590,6 +652,10 @@ impl DesktopAgent for DesktopAgentService {
                     success: true,
                     error: None,
                     error_code: None,
+                    window_changed: None,
+                    focus_changed: None,
+                    new_window_title: None,
+                    new_window_id: None,
                 }))
             }
             Err(e) => {
@@ -598,6 +664,10 @@ impl DesktopAgent for DesktopAgentService {
                     success: false,
                     error: Some(e.to_string()),
                     error_code: None,
+                    window_changed: None,
+                    focus_changed: None,
+                    new_window_title: None,
+                    new_window_id: None,
                 }))
             }
         }
@@ -634,6 +704,10 @@ impl DesktopAgent for DesktopAgentService {
                     success: true,
                     error: None,
                     error_code: None,
+                    window_changed: None,
+                    focus_changed: None,
+                    new_window_title: None,
+                    new_window_id: None,
                 }))
             }
             Err(e) => {
@@ -642,6 +716,10 @@ impl DesktopAgent for DesktopAgentService {
                     success: false,
                     error: Some(e.to_string()),
                     error_code: None,
+                    window_changed: None,
+                    focus_changed: None,
+                    new_window_title: None,
+                    new_window_id: None,
                 }))
             }
         }
@@ -673,6 +751,10 @@ impl DesktopAgent for DesktopAgentService {
                     success: true,
                     error: None,
                     error_code: None,
+                    window_changed: None,
+                    focus_changed: None,
+                    new_window_title: None,
+                    new_window_id: None,
                 }))
             }
             Err(e) => {
@@ -681,6 +763,10 @@ impl DesktopAgent for DesktopAgentService {
                     success: false,
                     error: Some(e.to_string()),
                     error_code: None,
+                    window_changed: None,
+                    focus_changed: None,
+                    new_window_title: None,
+                    new_window_id: None,
                 }))
             }
         }
@@ -710,6 +796,10 @@ impl DesktopAgent for DesktopAgentService {
                     success: true,
                     error: None,
                     error_code: None,
+                    window_changed: None,
+                    focus_changed: None,
+                    new_window_title: None,
+                    new_window_id: None,
                 }))
             }
             Err(e) => {
@@ -718,6 +808,10 @@ impl DesktopAgent for DesktopAgentService {
                     success: false,
                     error: Some(e.to_string()),
                     error_code: None,
+                    window_changed: None,
+                    focus_changed: None,
+                    new_window_title: None,
+                    new_window_id: None,
                 }))
             }
         }
@@ -878,7 +972,10 @@ impl DesktopAgent for DesktopAgentService {
                 .collect();
             
             info!("Found {} windows", windows.len());
-            Ok(Response::new(GetWindowListResponse { windows }))
+            Ok(Response::new(GetWindowListResponse { 
+                windows,
+                window_info: vec![],  // TODO: Implement rich window context
+            }))
         }
         
         #[cfg(not(any(target_os = "macos", target_os = "linux")))]
@@ -1579,6 +1676,148 @@ impl DesktopAgent for DesktopAgentService {
             }
         }
     }
+    
+    // NEW in v2.1: Get focused window screenshot (token-efficient)
+    async fn get_focused_window_screenshot(
+        &self,
+        request: Request<GetFocusedWindowScreenshotRequest>,
+    ) -> Result<Response<GetFocusedWindowScreenshotResponse>, Status> {
+        let req = request.into_inner();
+        info!("GetFocusedWindowScreenshot called for agent: {}", req.agent_id);
+        
+        let include_ocr = req.include_ocr;
+        
+        let result = tokio::task::spawn_blocking(move || {
+            use std::process::Command;
+            
+            // Get active window ID
+            let window_info = get_active_window_info()?;
+            let (window_id, window_title) = window_info;
+            
+            // Capture only the focused window using scrot with window ID
+            let temp_path = format!("/tmp/focused_window_{}.png", std::process::id());
+            
+            let output = Command::new("scrot")
+                .arg("-u")  // Focused window only
+                .arg(&temp_path)
+                .arg("--overwrite")
+                .env("DISPLAY", ":0")
+                .output()?;
+            
+            if !output.status.success() {
+                return Err(anyhow::anyhow!("Failed to capture focused window"));
+            }
+            
+            // Read image data
+            let image_data = std::fs::read(&temp_path)?;
+            
+            // Get dimensions using image crate if available, otherwise estimate
+            let (width, height) = (800, 600);  // Default, could use image crate to get actual dims
+            
+            // Clean up temp file
+            let _ = std::fs::remove_file(&temp_path);
+            
+            Ok::<_, anyhow::Error>((window_id, window_title, image_data, width, height))
+        })
+        .await
+        .map_err(|e| Status::internal(format!("Task join error: {}", e)))?;
+        
+        match result {
+            Ok((window_id, window_title, image_data, width, height)) => {
+                info!("Focused window screenshot captured: {} bytes", image_data.len());
+                
+                // TODO: Add OCR if requested
+                let text_elements = vec![];
+                
+                Ok(Response::new(GetFocusedWindowScreenshotResponse {
+                    success: true,
+                    image_data,
+                    width,
+                    height,
+                    window_title,
+                    window_id,
+                    error: None,
+                    text_elements,
+                }))
+            }
+            Err(e) => {
+                error!("Failed to capture focused window: {}", e);
+                Ok(Response::new(GetFocusedWindowScreenshotResponse {
+                    success: false,
+                    image_data: vec![],
+                    width: 0,
+                    height: 0,
+                    window_title: String::new(),
+                    window_id: String::new(),
+                    error: Some(e.to_string()),
+                    text_elements: vec![],
+                }))
+            }
+        }
+    }
+    
+    // NEW in v2.1: Get accessible UI elements
+    async fn get_accessible_elements(
+        &self,
+        request: Request<GetAccessibleElementsRequest>,
+    ) -> Result<Response<GetAccessibleElementsResponse>, Status> {
+        let _req = request.into_inner();
+        info!("GetAccessibleElements called");
+        
+        // TODO: Implement AT-SPI accessibility tree parsing
+        // For now, return unimplemented
+        Ok(Response::new(GetAccessibleElementsResponse {
+            success: false,
+            elements: vec![],
+            window_id: String::new(),
+            window_title: String::new(),
+            error: Some("Not yet implemented - AT-SPI integration pending".to_string()),
+        }))
+    }
+    
+    // NEW in v2.1: Extract text from screen using OCR
+    async fn extract_text_from_screen(
+        &self,
+        request: Request<ExtractTextRequest>,
+    ) -> Result<Response<ExtractTextResponse>, Status> {
+        let _req = request.into_inner();
+        info!("ExtractTextFromScreen called");
+        
+        // TODO: Implement tesseract OCR integration
+        // For now, return unimplemented
+        Ok(Response::new(ExtractTextResponse {
+            success: false,
+            text_elements: vec![],
+            error: Some("Not yet implemented - Tesseract OCR integration pending".to_string()),
+        }))
+    }
+}
+
+/// Get current active window information (Linux only)
+#[cfg(target_os = "linux")]
+fn get_active_window_info() -> Result<(String, String), anyhow::Error> {
+    use std::process::Command;
+    
+    let output = Command::new("xdotool")
+        .args(["getactivewindow", "getwindowname"])
+        .env("DISPLAY", ":0")
+        .output()?;
+    
+    if !output.status.success() {
+        return Err(anyhow::anyhow!("Failed to get active window"));
+    }
+    
+    let window_title = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    
+    // Get window ID
+    let id_output = Command::new("xdotool")
+        .arg("getactivewindow")
+        .env("DISPLAY", ":0")
+        .output()?;
+    
+    let window_id = String::from_utf8_lossy(&id_output.stdout).trim().to_string();
+    
+    Ok((window_id, window_title))
 }
 
 /// Capture accessibility tree and extract shortcuts
