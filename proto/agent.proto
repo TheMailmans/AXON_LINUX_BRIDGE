@@ -436,6 +436,12 @@ message HealthCheckResponse {
   int64 total_requests = 8;        // Total RPC requests handled
   int64 failed_requests = 9;       // Total failed RPC requests
   float avg_response_time_ms = 10; // Average RPC response time
+  // NEW in v2.3: Cache statistics
+  float cache_hit_rate = 11;       // Frame cache hit rate (0.0-1.0)
+  int64 cache_hits = 12;           // Total cache hits
+  int64 cache_misses = 13;         // Total cache misses
+  int64 cache_entries = 14;        // Current cached frames
+  int64 cache_memory_mb = 15;      // Estimated cache memory usage in MB
 }
 
 // Application control

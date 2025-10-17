@@ -21,6 +21,8 @@ use std::pin::Pin;
 use crate::metrics::{BridgeMetrics, RequestMetrics};
 use crate::validation::CoordinateValidator;
 use crate::health::HealthMonitor;
+use crate::capture::compression::CompressionConfig;
+use crate::capture::cache::FrameCache;
 
 /// gRPC service wrapper around Agent
 pub struct DesktopAgentService {
@@ -30,6 +32,9 @@ pub struct DesktopAgentService {
     metrics: BridgeMetrics,
     coordinate_validator: Arc<CoordinateValidator>,
     health_monitor: Arc<RwLock<HealthMonitor>>,
+    // NEW in v2.3: Compression and caching
+    compression_config: CompressionConfig,
+    frame_cache: Arc<RwLock<FrameCache>>,
 }
 
 impl DesktopAgentService {
@@ -47,6 +52,9 @@ impl DesktopAgentService {
                 system_info.screen_height as i32,
             )),
             health_monitor: Arc::new(RwLock::new(HealthMonitor::new())),
+            // NEW in v2.3: Initialize compression and caching
+            compression_config: CompressionConfig::default(),
+            frame_cache: Arc::new(RwLock::new(FrameCache::new(100))), // Max 100 frames
         }
     }
     
@@ -197,8 +205,9 @@ impl DesktopAgent for DesktopAgentService {
         request: Request<GetFrameRequest>,
     ) -> Result<Response<GetFrameResponse>, Status> {
         let _req = request.into_inner();
+        let (metrics, request_id) = self.begin_request("get_frame");
         
-        debug!("GetFrame RPC called - capturing on-demand screenshot");
+        debug!("[{}] GetFrame RPC called - capturing on-demand screenshot", request_id);
         
         // Capture a single frame directly using platform capturer
         // This is independent of the streaming pipeline
@@ -206,6 +215,7 @@ impl DesktopAgent for DesktopAgentService {
         {
             use crate::capture::linux::LinuxCapturer;
             use crate::capture::CaptureConfig;
+            use crate::capture::compression::hash_frame;
             
             // CRITICAL FIX: Use spawn_blocking to avoid blocking the async runtime
             // The scrot command is a synchronous blocking operation
@@ -221,25 +231,108 @@ impl DesktopAgent for DesktopAgentService {
             .map_err(|e| Status::internal(format!("Task join error: {}", e)))?
             .map_err(|e| Status::internal(format!("Failed to capture frame: {}", e)))?;
             
-            info!("Captured frame: {}x{}, {} bytes", 
-                raw_frame.width, raw_frame.height, raw_frame.data.len());
+            info!("[{}] Captured frame: {}x{}, {} bytes", 
+                request_id, raw_frame.width, raw_frame.height, raw_frame.data.len());
             
-            // No a11y on macOS (yet)
-            Ok(Response::new(GetFrameResponse {
-                frame: Some(FrameData {
-                    timestamp: std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .unwrap()
-                        .as_millis() as i64,
-                    width: raw_frame.width as i32,
-                    height: raw_frame.height as i32,
-                    data: raw_frame.data,
-                    format: 2, // PNG format
-                    sequence_number: raw_frame.sequence as i32,
-                    accessibility_tree: None,
-                    discovered_shortcuts: vec![],
-                }),
-            }))
+            // NEW in v2.3: Check cache before returning
+            let frame_hash = hash_frame(&raw_frame.data);
+            let cache_key = format!("frame_{}", frame_hash);
+            
+            // Try to get from cache
+            let use_cache = {
+                let mut cache = self.frame_cache.write().await;
+                if let Some(cached_frame) = cache.get(&cache_key) {
+                    info!("[{}] Cache HIT - returning cached frame ({}ms)", 
+                        request_id, metrics.elapsed_ms());
+                    self.metrics.record_success(metrics.elapsed_ms());
+                    
+                    let stats = cache.stats();
+                    debug!("[{}] Cache stats - hits: {}, misses: {}, hit_rate: {:.1}%", 
+                        request_id, stats.hits, stats.misses, stats.hit_rate * 100.0);
+                    
+                    return Ok(Response::new(GetFrameResponse {
+                        frame: Some(FrameData {
+                            timestamp: std::time::SystemTime::now()
+                                .duration_since(std::time::UNIX_EPOCH)
+                                .unwrap()
+                                .as_millis() as i64,
+                            width: cached_frame.width as i32,
+                            height: cached_frame.height as i32,
+                            data: cached_frame.data,
+                            format: 2, // PNG format
+                            sequence_number: 0,
+                            accessibility_tree: None,
+                            discovered_shortcuts: vec![],
+                        }),
+                    }));
+                }
+                true
+            };
+            
+            // Cache miss - compress and store
+            if use_cache {
+                let compressed = match crate::capture::compression::compress_frame(
+                    &raw_frame.data,
+                    raw_frame.width,
+                    raw_frame.height,
+                    self.compression_config,
+                ) {
+                    Ok(cf) => cf,
+                    Err(e) => {
+                        error!("[{}] Failed to compress frame: {}", request_id, e);
+                        self.end_failure("get_frame", &request_id, &metrics, &e.to_string());
+                        return Err(Status::internal(format!("Compression failed: {}", e)));
+                    }
+                };
+                
+                let is_worthwhile = compressed.is_worthwhile();
+                debug!("[{}] Compressed frame: {} -> {} bytes (ratio: {:.2}, worthwhile: {})", 
+                    request_id, compressed.uncompressed_size, compressed.compressed_size, 
+                    compressed.compression_ratio, is_worthwhile);
+                
+                // Store in cache
+                let mut cache = self.frame_cache.write().await;
+                cache.insert(cache_key.clone(), compressed.clone());
+                let stats = cache.stats();
+                debug!("[{}] Cache MISS - stored frame (cache size: {}/{})", 
+                    request_id, stats.entries_count, stats.max_entries);
+                drop(cache);
+                
+                self.end_success("get_frame", &request_id, &metrics);
+                
+                Ok(Response::new(GetFrameResponse {
+                    frame: Some(FrameData {
+                        timestamp: std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap()
+                            .as_millis() as i64,
+                        width: compressed.width as i32,
+                        height: compressed.height as i32,
+                        data: compressed.data,
+                        format: 2, // PNG format
+                        sequence_number: 0,
+                        accessibility_tree: None,
+                        discovered_shortcuts: vec![],
+                    }),
+                }))
+            } else {
+                self.end_success("get_frame", &request_id, &metrics);
+                Ok(Response::new(GetFrameResponse {
+                    frame: Some(FrameData {
+                        timestamp: std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap()
+                            .as_millis() as i64,
+                        width: raw_frame.width as i32,
+                        height: raw_frame.height as i32,
+                        data: raw_frame.data,
+                        format: 2, // PNG format
+                        sequence_number: raw_frame.sequence as i32,
+                        accessibility_tree: None,
+                        discovered_shortcuts: vec![],
+                    }),
+                }))
+            }
         }
         
         #[cfg(target_os = "macos")]
@@ -1942,6 +2035,13 @@ impl DesktopAgent for DesktopAgentService {
         let failed_requests = self.metrics.failed_requests();
         let avg_response_time = self.metrics.avg_response_time_ms();
         
+        // NEW in v2.3: Get cache statistics
+        let cache_stats = {
+            let cache = self.frame_cache.read().await;
+            cache.stats()
+        };
+        let cache_memory_mb = self.frame_cache.read().await.estimated_memory_bytes() / 1024 / 1024;
+        
         let response = HealthCheckResponse {
             healthy: is_healthy,
             status: if is_healthy { "healthy".into() } else { "degraded".into() },
@@ -1953,12 +2053,19 @@ impl DesktopAgent for DesktopAgentService {
             total_requests: total_requests as i64,
             failed_requests: failed_requests as i64,
             avg_response_time_ms: avg_response_time,
+            // NEW in v2.3: Cache statistics
+            cache_hit_rate: cache_stats.hit_rate,
+            cache_hits: cache_stats.hits as i64,
+            cache_misses: cache_stats.misses as i64,
+            cache_entries: cache_stats.entries_count as i64,
+            cache_memory_mb: cache_memory_mb as i64,
         };
         
         self.end_success("health_check", &request_id, &metrics);
-        info!("✅ [{}] HealthCheck: healthy={}, cpu={:.1}%, mem={}MB, uptime={}s",
+        info!("✅ [{}] HealthCheck: healthy={}, cpu={:.1}%, mem={}MB, uptime={}s, cache_hit_rate={:.1}%",
               request_id, is_healthy, health_status.cpu_usage_percent,
-              health_status.memory_usage_mb, health_status.uptime_seconds);
+              health_status.memory_usage_mb, health_status.uptime_seconds,
+              cache_stats.hit_rate * 100.0);
         
         Ok(Response::new(response))
     }
