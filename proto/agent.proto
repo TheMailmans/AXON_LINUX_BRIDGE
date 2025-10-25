@@ -1,0 +1,366 @@
+syntax = "proto3";
+
+package axon.agent;
+
+// Desktop Agent Service
+// Provides screen capture, audio streaming, and input injection
+service DesktopAgent {
+  // Lifecycle management
+  rpc RegisterAgent(ConnectRequest) returns (ConnectResponse);
+  rpc UnregisterAgent(DisconnectRequest) returns (DisconnectResponse);
+  rpc Heartbeat(HeartbeatRequest) returns (HeartbeatResponse);
+  
+  // Capture control
+  rpc StartCapture(StartCaptureRequest) returns (StartCaptureResponse);
+  rpc StopCapture(StopCaptureRequest) returns (StopCaptureResponse);
+  rpc GetFrame(GetFrameRequest) returns (GetFrameResponse);
+  rpc StreamFrames(StreamFramesRequest) returns (stream FrameData);
+  
+  // Audio control
+  rpc StartAudio(StartAudioRequest) returns (StartAudioResponse);
+  rpc StopAudio(StopAudioRequest) returns (StopAudioResponse);
+  rpc StreamAudio(StreamAudioRequest) returns (stream AudioData);
+  
+  // Input injection
+  rpc InjectMouseMove(MouseMoveRequest) returns (InputResponse);
+  rpc InjectMouseClick(MouseClickRequest) returns (InputResponse);
+  rpc InjectKeyPress(KeyPressRequest) returns (InputResponse);
+  
+  // System info
+  rpc GetSystemInfo(SystemInfoRequest) returns (SystemInfoResponse);
+  
+  // OSWorld evaluator support - system state queries
+  rpc GetWindowList(GetWindowListRequest) returns (GetWindowListResponse);
+  rpc GetProcessList(GetProcessListRequest) returns (GetProcessListResponse);
+  rpc GetBrowserTabs(GetBrowserTabsRequest) returns (GetBrowserTabsResponse);
+  rpc ListFiles(ListFilesRequest) returns (ListFilesResponse);
+  rpc GetClipboard(GetClipboardRequest) returns (GetClipboardResponse);
+  
+  // Application control
+  rpc LaunchApplication(LaunchApplicationRequest) returns (LaunchApplicationResponse);
+  rpc CloseApplication(CloseApplicationRequest) returns (CloseApplicationResponse);
+  
+  // Screenshot capture
+  rpc TakeScreenshot(TakeScreenshotRequest) returns (TakeScreenshotResponse);
+  
+  // Input locking (for AI/human control handoff)
+  rpc SetInputLock(InputLockRequest) returns (InputLockResponse);
+}
+
+// Connection
+message ConnectRequest {
+  string session_id = 1;
+  string hub_url = 2;
+  string auth_token = 3;
+}
+
+message ConnectResponse {
+  string agent_id = 1;
+  string status = 2;
+  SystemInfo system_info = 3;
+}
+
+message DisconnectRequest {
+  string agent_id = 1;
+}
+
+message DisconnectResponse {
+  bool success = 1;
+}
+
+message HeartbeatRequest {
+  string agent_id = 1;
+  int64 timestamp = 2;
+}
+
+message HeartbeatResponse {
+  int64 server_timestamp = 1;
+  string status = 2;
+}
+
+// Capture control
+message StartCaptureRequest {
+  string agent_id = 1;
+  CaptureMode mode = 2;
+  optional string window_id = 3;
+  CaptureConfig config = 4;
+}
+
+message StartCaptureResponse {
+  bool success = 1;
+  string capture_id = 2;
+}
+
+message StopCaptureRequest {
+  string agent_id = 1;
+  string capture_id = 2;
+}
+
+message StopCaptureResponse {
+  bool success = 1;
+}
+
+message GetFrameRequest {
+  string agent_id = 1;
+  string capture_id = 2;
+}
+
+message GetFrameResponse {
+  FrameData frame = 1;
+}
+
+message StreamFramesRequest {
+  string agent_id = 1;
+  string capture_id = 2;
+}
+
+message FrameData {
+  int64 timestamp = 1;
+  int32 width = 2;
+  int32 height = 3;
+  bytes data = 4;
+  FrameFormat format = 5;
+  int32 sequence_number = 6;
+  optional string accessibility_tree = 7;
+  repeated ShortcutInfo discovered_shortcuts = 8;
+}
+
+message ShortcutInfo {
+  string name = 1;
+  string raw_shortcut = 2;
+  repeated string normalized_keys = 3;
+  string command = 4;
+  bool is_single_key = 5;
+}
+
+// Audio control
+message StartAudioRequest {
+  string agent_id = 1;
+  AudioSource source = 2;
+  optional string application_id = 3;
+  AudioConfig config = 4;
+}
+
+message StartAudioResponse {
+  bool success = 1;
+  string audio_id = 2;
+}
+
+message StopAudioRequest {
+  string agent_id = 1;
+  string audio_id = 2;
+}
+
+message StopAudioResponse {
+  bool success = 1;
+}
+
+message StreamAudioRequest {
+  string agent_id = 1;
+  string audio_id = 2;
+}
+
+message AudioData {
+  int64 timestamp = 1;
+  bytes data = 2;
+  AudioFormat format = 3;
+  int32 sample_rate = 4;
+  int32 channels = 5;
+}
+
+// Input injection
+message MouseMoveRequest {
+  string agent_id = 1;
+  int32 x = 2;
+  int32 y = 3;
+  bool relative = 4;
+}
+
+message MouseClickRequest {
+  string agent_id = 1;
+  int32 x = 2;
+  int32 y = 3;
+  MouseButton button = 4;
+  ClickType click_type = 5;
+}
+
+message KeyPressRequest {
+  string agent_id = 1;
+  string key = 2;
+  repeated string modifiers = 3;
+}
+
+message InputResponse {
+  bool success = 1;
+  optional string error = 2;
+}
+
+// Input locking control
+message InputLockRequest {
+  string agent_id = 1;
+  bool locked = 2;
+}
+
+message InputLockResponse {
+  bool success = 1;
+  optional string error = 2;
+}
+
+// System info
+message SystemInfoRequest {
+  string agent_id = 1;
+}
+
+message SystemInfoResponse {
+  SystemInfo info = 1;
+}
+
+message SystemInfo {
+  string os = 1;
+  string os_version = 2;
+  string arch = 3;
+  string hostname = 4;
+  int32 screen_width = 5;
+  int32 screen_height = 6;
+  repeated Display displays = 7;
+}
+
+message Display {
+  int32 id = 1;
+  string name = 2;
+  int32 width = 3;
+  int32 height = 4;
+  int32 x = 5;
+  int32 y = 6;
+  bool is_primary = 7;
+}
+
+// Configuration
+message CaptureConfig {
+  int32 frame_rate = 1;
+  int32 quality = 2;
+  FrameFormat format = 3;
+}
+
+message AudioConfig {
+  int32 sample_rate = 1;
+  int32 channels = 2;
+  AudioFormat format = 3;
+}
+
+// Enums
+enum CaptureMode {
+  DESKTOP = 0;
+  WINDOW = 1;
+  REGION = 2;
+}
+
+enum FrameFormat {
+  RGBA = 0;
+  JPEG = 1;
+  PNG = 2;
+  H264 = 3;
+}
+
+enum AudioSource {
+  SYSTEM = 0;
+  APPLICATION = 1;
+  MICROPHONE = 2;
+}
+
+enum AudioFormat {
+  PCM = 0;
+  OPUS = 1;
+  AAC = 2;
+}
+
+enum MouseButton {
+  LEFT = 0;
+  RIGHT = 1;
+  MIDDLE = 2;
+}
+
+enum ClickType {
+  SINGLE = 0;
+  DOUBLE = 1;
+  PRESS = 2;
+  RELEASE = 3;
+}
+
+// OSWorld evaluator support messages
+message GetWindowListRequest {
+  string agent_id = 1;
+}
+
+message GetWindowListResponse {
+  repeated string windows = 1;
+}
+
+message GetProcessListRequest {
+  string agent_id = 1;
+}
+
+message GetProcessListResponse {
+  repeated string processes = 1;
+}
+
+message GetBrowserTabsRequest {
+  string agent_id = 1;
+  string browser = 2;  // "chrome", "safari", "firefox"
+}
+
+message GetBrowserTabsResponse {
+  repeated string tabs = 1;
+}
+
+message ListFilesRequest {
+  string agent_id = 1;
+  string directory = 2;
+}
+
+message ListFilesResponse {
+  repeated string files = 1;
+}
+
+message GetClipboardRequest {
+  string agent_id = 1;
+}
+
+message GetClipboardResponse {
+  string content = 1;
+}
+
+// Application control
+message LaunchApplicationRequest {
+  string agent_id = 1;
+  string app_name = 2;  // e.g. "calculator", "terminal", "files", "firefox"
+}
+
+message LaunchApplicationResponse {
+  bool success = 1;
+  string error = 2;
+}
+
+message CloseApplicationRequest {
+  string agent_id = 1;
+  string app_name = 2;  // Window title or app name to close (e.g. "Calculator", "axonhub Calculator")
+}
+
+message CloseApplicationResponse {
+  bool success = 1;
+  string error = 2;
+}
+
+// Screenshot request
+message TakeScreenshotRequest {
+  string agent_id = 1;
+  string save_path = 2;  // Optional path to save screenshot
+}
+
+// Screenshot response
+message TakeScreenshotResponse {
+  bool success = 1;
+  string file_path = 2;  // Path where screenshot was saved
+  string error = 3;
+  bytes image_data = 4;  // Optional: Include image data in response
+}
