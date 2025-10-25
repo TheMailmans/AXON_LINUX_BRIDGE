@@ -12,6 +12,8 @@ use tracing::{error, info, warn};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 mod input_lock;
+mod system_tray;
+mod notifications;
 
 use input_lock::InputLockController;
 
@@ -32,6 +34,9 @@ pub struct BridgeService {
     
     /// Agent ID (assigned on registration)
     agent_id: Arc<RwLock<Option<String>>>,
+    
+    /// System tray handle (optional - may not be available in headless mode)
+    tray_handle: Option<Arc<system_tray::AxonBridgeTray>>,
 }
 
 impl BridgeService {
@@ -45,7 +50,13 @@ impl BridgeService {
         Ok(Self {
             input_lock: Arc::new(RwLock::new(input_lock_controller)),
             agent_id: Arc::new(RwLock::new(None)),
+            tray_handle: None,
         })
+    }
+    
+    /// Set system tray handle
+    pub fn set_tray_handle(&mut self, tray: Arc<system_tray::AxonBridgeTray>) {
+        self.tray_handle = Some(tray);
     }
 }
 
@@ -63,6 +74,16 @@ impl DesktopAgent for BridgeService {
         // Generate agent ID (use session_id as agent_id for now)
         let agent_id = req.session_id.clone();
         *self.agent_id.write().await = Some(agent_id.clone());
+        
+        // Update tray: orchestrator connected
+        if let Some(ref tray) = self.tray_handle {
+            tray.set_orchestrator_connected(true).await;
+        }
+        
+        // Show connection notification
+        if let Err(e) = notifications::notify_orchestrator_connected() {
+            warn!("[Bridge] Failed to show connection notification: {}", e);
+        }
         
         // Get system info
         let system_info = get_system_info().await?;
@@ -95,6 +116,17 @@ impl DesktopAgent for BridgeService {
         }
         
         *self.agent_id.write().await = None;
+        
+        // Update tray: orchestrator disconnected
+        if let Some(ref tray) = self.tray_handle {
+            tray.set_orchestrator_connected(false).await;
+            tray.set_control_mode(system_tray::ControlMode::Idle).await;
+        }
+        
+        // Show disconnection notification
+        if let Err(e) = notifications::notify_orchestrator_disconnected() {
+            warn!("[Bridge] Failed to show disconnection notification: {}", e);
+        }
         
         info!("[Bridge] ✅ Agent unregistered");
         
@@ -140,6 +172,24 @@ impl DesktopAgent for BridgeService {
                     "[Bridge] ✅ Input lock set successfully: locked={}",
                     req.locked
                 );
+                
+                // Update system tray and send notification
+                if let Some(ref tray) = self.tray_handle {
+                    if req.locked {
+                        // AI is now controlling
+                        tray.set_control_mode(system_tray::ControlMode::AiControl).await;
+                        if let Err(e) = notifications::notify_ai_control_active() {
+                            warn!("[Bridge] Failed to show AI control notification: {}", e);
+                        }
+                    } else {
+                        // User is now training
+                        tray.set_control_mode(system_tray::ControlMode::TrainingMode).await;
+                        if let Err(e) = notifications::notify_training_mode_active() {
+                            warn!("[Bridge] Failed to show training mode notification: {}", e);
+                        }
+                    }
+                }
+                
                 Ok(Response::new(InputLockResponse {
                     success: true,
                     error: None,
@@ -147,6 +197,16 @@ impl DesktopAgent for BridgeService {
             }
             Err(e) => {
                 error!("[Bridge] ❌ Failed to set input lock: {}", e);
+                
+                // Show error notification
+                if let Err(notif_err) = notifications::notify_error(&format!(
+                    "Failed to {} inputs: {}",
+                    if req.locked { "lock" } else { "unlock" },
+                    e
+                )) {
+                    warn!("[Bridge] Failed to show error notification: {}", notif_err);
+                }
+                
                 Ok(Response::new(InputLockResponse {
                     success: false,
                     error: Some(format!("Failed to set input lock: {}", e)),
@@ -384,23 +444,45 @@ async fn main() -> Result<()> {
     info!("╚═══════════════════════════════════════════════════════════════╝");
     
     // Create bridge service
-    let bridge_service = BridgeService::new()
+    let mut bridge_service = BridgeService::new()
         .context("Failed to create bridge service")?;
     
     info!("[Bridge] ✅ Input lock controller initialized");
+    
+    // Start system tray icon and notifications
+    let orchestrator_url = "http://localhost:8080".to_string(); // TODO: Make configurable
+    let (_tray_service, tray_handle) = system_tray::start_system_tray(
+        bridge_service.input_lock.clone(),
+        orchestrator_url,
+    ).await.context("Failed to initialize system tray")?;
+    
+    // Pass tray handle to bridge service
+    bridge_service.set_tray_handle(tray_handle.clone());
+    
+    // Show startup notification
+    if let Err(e) = notifications::notify_bridge_started() {
+        warn!("[Bridge] Failed to show startup notification: {}", e);
+    }
     
     // Start emergency hotkey listener
     start_emergency_hotkey_listener(bridge_service.input_lock.clone()).await;
     
     // Start watchdog timer task
-    start_watchdog_timer(bridge_service.input_lock.clone()).await;
+    start_watchdog_timer(
+        bridge_service.input_lock.clone(),
+        tray_handle.clone(),
+    ).await;
     
     // Configure server address
     let addr: SocketAddr = "0.0.0.0:50051".parse()?;
     
     info!("[Bridge] Starting gRPC server on {}", addr);
     info!("[Bridge] Ready to receive commands from AxonHub");
+    info!("[Bridge] System tray icon active - check top panel");
     info!("[Bridge] Emergency hotkey: Ctrl+Alt+Shift+U");
+    
+    // Update tray: set to idle initially
+    tray_handle.set_control_mode(system_tray::ControlMode::Idle).await;
     
     // Start server
     Server::builder()
@@ -413,7 +495,10 @@ async fn main() -> Result<()> {
 }
 
 /// Start watchdog timer that auto-unlocks after timeout
-async fn start_watchdog_timer(input_lock: Arc<RwLock<InputLockController>>) {
+async fn start_watchdog_timer(
+    input_lock: Arc<RwLock<InputLockController>>,
+    tray_handle: Arc<system_tray::AxonBridgeTray>,
+) {
     info!("[Bridge] Starting watchdog timer");
     
     tokio::spawn(async move {
@@ -433,6 +518,14 @@ async fn start_watchdog_timer(input_lock: Arc<RwLock<InputLockController>>) {
                     error!("[Bridge] Watchdog auto-unlock failed: {}", e);
                 } else {
                     info!("[Bridge] ✅ Watchdog auto-unlock successful");
+                    
+                    // Update tray to idle
+                    tray_handle.set_control_mode(system_tray::ControlMode::Idle).await;
+                    
+                    // Show notification
+                    if let Err(e) = notifications::notify_lock_timeout() {
+                        warn!("[Bridge] Failed to show timeout notification: {}", e);
+                    }
                 }
             }
         }

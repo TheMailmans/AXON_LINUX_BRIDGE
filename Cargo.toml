@@ -40,6 +40,10 @@ uuid = { version = "1.0", features = ["v4"] }
 hostname = "0.3"
 tokio-stream = "0.1"
 
+# Desktop UI
+ksni = "0.2"              # System tray icon (KDE/GNOME compatible)
+notify-rust = "4.11"      # Desktop notifications
+
 [build-dependencies]
 tonic-build = "0.10"
 
