@@ -100,10 +100,9 @@ impl InputLockController {
             }
         }
         
-        // If not found by exact name, use fallback discovery
-        if self.keyboard_id.is_none() || self.mouse_id.is_none() {
-            self.discover_master_devices()?;
-        }
+        // Always discover master devices (needed for unlock/reattach)
+        // This ensures master_keyboard_id and master_pointer_id are always populated
+        self.discover_master_devices()?;
         
         Ok(())
     }
