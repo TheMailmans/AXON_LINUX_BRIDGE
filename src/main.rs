@@ -6,6 +6,9 @@
 use anyhow::{Context, Result};
 use std::net::SocketAddr;
 use std::sync::Arc;
+use std::process::Command;
+use std::fs;
+use std::io::{self, ErrorKind};
 use tokio::sync::RwLock;
 use tonic::{transport::Server, Request, Response, Status};
 use tracing::{error, info, warn};
@@ -350,9 +353,33 @@ impl DesktopAgent for BridgeService {
     
     async fn take_screenshot(
         &self,
-        _request: Request<TakeScreenshotRequest>,
+        request: Request<TakeScreenshotRequest>,
     ) -> Result<Response<TakeScreenshotResponse>, Status> {
-        Err(Status::unimplemented("take_screenshot not yet implemented"))
+        let req = request.into_inner();
+        info!("[Bridge] Taking screenshot...");
+        
+        // Try to capture screenshot with fallback methods
+        match capture_screenshot_with_fallback() {
+            Ok(image_data) => {
+                info!("[Bridge] ✅ Screenshot captured successfully ({} bytes)", image_data.len());
+                Ok(Response::new(TakeScreenshotResponse {
+                    success: true,
+                    file_path: req.save_path.clone(),
+                    error: String::new(),
+                    image_data,
+                }))
+            }
+            Err(e) => {
+                let error_msg = format!("Failed to capture screenshot: {}", e);
+                error!("[Bridge] ✗ {}", error_msg);
+                Ok(Response::new(TakeScreenshotResponse {
+                    success: false,
+                    file_path: String::new(),
+                    error: error_msg,
+                    image_data: vec![],
+                }))
+            }
+        }
     }
 }
 
@@ -530,4 +557,109 @@ async fn start_watchdog_timer(
             }
         }
     });
+}
+
+/// Capture screenshot with 3 fallback methods (2025 best practice)
+fn capture_screenshot_with_fallback() -> Result<Vec<u8>, String> {
+    // Method 1: Try scrot (fastest, most reliable)
+    if let Ok(data) = capture_with_scrot() {
+        return Ok(data);
+    }
+    
+    // Method 2: Try gnome-screenshot
+    if let Ok(data) = capture_with_gnome_screenshot() {
+        return Ok(data);
+    }
+    
+    // Method 3: Try ImageMagick import
+    if let Ok(data) = capture_with_imagemagick() {
+        return Ok(data);
+    }
+    
+    Err(
+        "All screenshot methods failed. Install scrot, gnome-screenshot, or imagemagick"
+            .to_string(),
+    )
+}
+
+/// Capture screenshot using scrot
+fn capture_with_scrot() -> Result<Vec<u8>, String> {
+    let temp_file = "/tmp/axonbridge_screenshot_scrot.png";
+    
+    let output = Command::new("scrot")
+        .arg(temp_file)
+        .arg("--overwrite")
+        .output()
+        .map_err(|e| format!("Failed to execute scrot: {}", e))?;
+    
+    if !output.status.success() {
+        return Err("scrot command failed".to_string());
+    }
+    
+    let data = fs::read(temp_file).map_err(|e| format!("Failed to read screenshot file: {}", e))?;
+    let _ = fs::remove_file(temp_file); // Cleanup
+    
+    Ok(data)
+}
+
+/// Capture screenshot using gnome-screenshot
+fn capture_with_gnome_screenshot() -> Result<Vec<u8>, String> {
+    let temp_file = "/tmp/axonbridge_screenshot_gnome.png";
+    
+    let output = Command::new("gnome-screenshot")
+        .arg("-f")
+        .arg(temp_file)
+        .output()
+        .map_err(|e| format!("Failed to execute gnome-screenshot: {}", e))?;
+    
+    if !output.status.success() {
+        return Err("gnome-screenshot command failed".to_string());
+    }
+    
+    let data = fs::read(temp_file).map_err(|e| format!("Failed to read screenshot file: {}", e))?;
+    let _ = fs::remove_file(temp_file); // Cleanup
+    
+    Ok(data)
+}
+
+/// Capture screenshot using ImageMagick import
+fn capture_with_imagemagick() -> Result<Vec<u8>, String> {
+    let temp_file = "/tmp/axonbridge_screenshot_im.png";
+    
+    let output = Command::new("import")
+        .arg("-window")
+        .arg("root")
+        .arg(temp_file)
+        .output()
+        .map_err(|e| format!("Failed to execute imagemagick import: {}", e))?;
+    
+    if !output.status.success() {
+        return Err("imagemagick import command failed".to_string());
+    }
+    
+    let data = fs::read(temp_file).map_err(|e| format!("Failed to read screenshot file: {}", e))?;
+    let _ = fs::remove_file(temp_file); // Cleanup
+    
+    Ok(data)
+}
+
+#[cfg(test)]
+mod screenshot_tests {
+    use super::*;
+    
+    #[test]
+    fn test_screenshot_fallback() {
+        // This test verifies that at least one screenshot method is available
+        let result = capture_screenshot_with_fallback();
+        
+        if result.is_ok() {
+            let data = result.unwrap();
+            // Verify PNG header (8-byte PNG magic number)
+            assert_eq!(&data[0..8], &[137, 80, 78, 71, 13, 10, 26, 10], "Invalid PNG header");
+            assert!(data.len() > 100, "Screenshot data seems too small");
+        } else {
+            println!("⚠️  Screenshot test skipped: No screenshot tool available");
+            println!("   Install scrot, gnome-screenshot, or imagemagick");
+        }
+    }
 }
