@@ -484,6 +484,47 @@ async fn check_emergency_hotkey() -> bool {
     }
 }
 
+/// Start heartbeat task - sends heartbeat every 30 seconds
+async fn start_heartbeat_task(pairing_code: &str) {
+    let pairing_code = pairing_code.to_string();
+    let client = match reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+    {
+        Ok(c) => c,
+        Err(e) => {
+            error!("[Heartbeat] Failed to create HTTP client: {}", e);
+            return;
+        }
+    };
+
+    info!("[Heartbeat] Starting heartbeat task (30s interval)");
+
+    loop {
+        tokio::time::sleep(tokio::time::Duration::from_secs(30)).await;
+
+        match client
+            .post("https://axonhub.fly.dev/api/v1/bridges/heartbeat")
+            .json(&serde_json::json!({
+                "pairing_code": pairing_code
+            }))
+            .send()
+            .await
+        {
+            Ok(response) => {
+                if response.status().is_success() {
+                    info!("[Heartbeat] ✅ Heartbeat sent successfully");
+                } else {
+                    warn!("[Heartbeat] ⚠️  Heartbeat failed: {}", response.status());
+                }
+            }
+            Err(e) => {
+                warn!("[Heartbeat] ⚠️  Heartbeat request failed: {}", e);
+            }
+        }
+    }
+}
+
 /// Announce bridge to AxonHub backend
 async fn announce_to_backend(pairing_code: &str) -> Result<()> {
     let hostname = hostname::get()
@@ -564,6 +605,12 @@ async fn main() -> Result<()> {
             warn!("[Bridge] Bridge will still work if you manually enter IP address");
         }
     }
+
+    // Start heartbeat task
+    let pairing_code_clone = pairing_code.clone();
+    tokio::spawn(async move {
+        start_heartbeat_task(&pairing_code_clone).await;
+    });
     
     // Start system tray icon and notifications
     let orchestrator_url = "http://localhost:8080".to_string(); // TODO: Make configurable
