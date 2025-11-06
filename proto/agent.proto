@@ -45,6 +45,11 @@ service DesktopAgent {
   
   // Input locking (for AI/human control handoff)
   rpc SetInputLock(InputLockRequest) returns (InputLockResponse);
+
+  // Pairing Management (Bridge-Core connection)
+  rpc GeneratePairingCode(PairingCodeRequest) returns (PairingCodeResponse);
+  rpc ValidatePairingCode(ValidatePairingRequest) returns (ValidatePairingResponse);
+  rpc RevokePairingToken(RevokeTokenRequest) returns (RevokeTokenResponse);
 }
 
 // Connection
@@ -363,4 +368,42 @@ message TakeScreenshotResponse {
   string file_path = 2;  // Path where screenshot was saved
   string error = 3;
   bytes image_data = 4;  // Optional: Include image data in response
+}
+
+// Pairing Code Generation
+message PairingCodeRequest {
+  string bridge_id = 1;
+}
+
+message PairingCodeResponse {
+  bool success = 1;
+  optional string code = 2;  // ABC-123 format
+  optional string error = 3;
+  int64 expires_at = 4;  // Unix timestamp
+}
+
+// Pairing Code Validation
+message ValidatePairingRequest {
+  string code = 1;  // ABC-123 format
+  string core_id = 2;  // UUID of Core instance
+  string core_name = 3;  // Human-readable name (e.g., "MacBook Pro")
+}
+
+message ValidatePairingResponse {
+  bool success = 1;
+  optional string token = 2;  // JWT token
+  optional string bridge_id = 3;
+  optional string bridge_name = 4;
+  optional string error = 5;
+}
+
+// Token Revocation
+message RevokeTokenRequest {
+  string token = 1;  // JWT token to revoke
+  string reason = 2;  // Revocation reason
+}
+
+message RevokeTokenResponse {
+  bool success = 1;
+  optional string error = 2;
 }
