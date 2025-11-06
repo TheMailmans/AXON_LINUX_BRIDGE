@@ -484,6 +484,41 @@ async fn check_emergency_hotkey() -> bool {
     }
 }
 
+/// Announce bridge to AxonHub backend
+async fn announce_to_backend(pairing_code: &str) -> Result<()> {
+    let hostname = hostname::get()
+        .ok()
+        .and_then(|h| h.into_string().ok())
+        .unwrap_or_else(|| "linux-bridge".to_string());
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .build()?;
+
+    let response = client
+        .post("https://axonhub.fly.dev/api/v1/bridges/announce")
+        .json(&serde_json::json!({
+            "bridge_name": hostname,
+            "platform": "linux",
+            "pairing_code": pairing_code,
+            "port": 50051,
+            "metadata": {
+                "version": "1.0.0",
+                "features": ["desktop_automation", "input_lock", "screenshots"]
+            }
+        }))
+        .send()
+        .await?;
+
+    if response.status().is_success() {
+        Ok(())
+    } else {
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
+        anyhow::bail!("Backend returned {}: {}", status, body)
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     // Initialize logging
@@ -518,6 +553,17 @@ async fn main() -> Result<()> {
     info!("║  URL: https://axonhub.fly.dev/admin/bridges                   ║");
     info!("╚═══════════════════════════════════════════════════════════════╝");
     info!("");
+
+    // Announce bridge to AxonHub backend
+    match announce_to_backend(&pairing_code).await {
+        Ok(_) => {
+            info!("[Bridge] ✅ Successfully announced to AxonHub backend");
+        }
+        Err(e) => {
+            warn!("[Bridge] ⚠️  Failed to announce to backend: {}", e);
+            warn!("[Bridge] Bridge will still work if you manually enter IP address");
+        }
+    }
     
     // Start system tray icon and notifications
     let orchestrator_url = "http://localhost:8080".to_string(); // TODO: Make configurable
