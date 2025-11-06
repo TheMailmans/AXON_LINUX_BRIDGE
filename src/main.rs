@@ -34,10 +34,13 @@ use agent::{
 pub struct BridgeService {
     /// Input lock controller
     input_lock: Arc<RwLock<InputLockController>>,
-    
+
     /// Agent ID (assigned on registration)
     agent_id: Arc<RwLock<Option<String>>>,
-    
+
+    /// Pairing code for initial connection
+    pairing_code: Arc<RwLock<String>>,
+
     /// System tray handle (optional - may not be available in headless mode)
     tray_handle: Option<Arc<system_tray::AxonBridgeTray>>,
 }
@@ -46,15 +49,42 @@ impl BridgeService {
     /// Create new bridge service
     pub fn new() -> Result<Self> {
         let mut input_lock_controller = InputLockController::new();
-        
+
         // Initialize input devices
         input_lock_controller.init()?;
-        
+
+        // Generate pairing code
+        let pairing_code = Self::generate_pairing_code();
+
         Ok(Self {
             input_lock: Arc::new(RwLock::new(input_lock_controller)),
             agent_id: Arc::new(RwLock::new(None)),
+            pairing_code: Arc::new(RwLock::new(pairing_code)),
             tray_handle: None,
         })
+    }
+
+    /// Generate a random pairing code (format: ABC-123)
+    fn generate_pairing_code() -> String {
+        use rand::Rng;
+        let mut rng = rand::thread_rng();
+
+        // Generate 3 uppercase letters
+        let letters: String = (0..3)
+            .map(|_| rng.gen_range(b'A'..=b'Z') as char)
+            .collect();
+
+        // Generate 3 digits
+        let numbers: String = (0..3)
+            .map(|_| rng.gen_range(b'0'..=b'9') as char)
+            .collect();
+
+        format!("{}-{}", letters, numbers)
+    }
+
+    /// Get the current pairing code
+    pub async fn get_pairing_code(&self) -> String {
+        self.pairing_code.read().await.clone()
     }
     
     /// Set system tray handle
@@ -469,12 +499,25 @@ async fn main() -> Result<()> {
     info!("║              AXONBRIDGE-Linux v1.0.0                          ║");
     info!("║     Production-ready Linux Bridge for AxonHub OSWorld         ║");
     info!("╚═══════════════════════════════════════════════════════════════╝");
-    
+
     // Create bridge service
     let mut bridge_service = BridgeService::new()
         .context("Failed to create bridge service")?;
-    
+
     info!("[Bridge] ✅ Input lock controller initialized");
+
+    // Get and display pairing code
+    let pairing_code = bridge_service.get_pairing_code().await;
+    info!("");
+    info!("╔═══════════════════════════════════════════════════════════════╗");
+    info!("║                      PAIRING CODE                             ║");
+    info!("║                                                               ║");
+    info!("║                        {}                              ║", pairing_code);
+    info!("║                                                               ║");
+    info!("║  Enter this code in the AxonHub admin panel to pair          ║");
+    info!("║  URL: https://axonhub.fly.dev/admin/bridges                   ║");
+    info!("╚═══════════════════════════════════════════════════════════════╝");
+    info!("");
     
     // Start system tray icon and notifications
     let orchestrator_url = "http://localhost:8080".to_string(); // TODO: Make configurable
